@@ -1,0 +1,17 @@
+# Binary
+tangra-client
+go-tangra-client
+
+# Build artifacts
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

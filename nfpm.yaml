@@ -1,0 +1,46 @@
+name: tangra-client
+arch: ${ARCH}
+version: ${VERSION}
+maintainer: Go Tangra <support@go-tangra.dev>
+description: Tangra Client - Unified IPAM and LCM agent for Linux hosts
+homepage: https://github.com/go-tangra/go-tangra-client
+license: MIT
+vendor: Go Tangra
+
+contents:
+  # Binary
+  - src: dist/tangra-client
+    dst: /usr/local/bin/tangra-client
+    file_info:
+      mode: 0755
+
+  # Systemd service
+  - src: deploy/tangra-client.service
+    dst: /etc/systemd/system/tangra-client.service
+    file_info:
+      mode: 0644
+
+  # Sample config (only if not already present)
+  - src: deploy/config.yaml
+    dst: /etc/tangra-client/config.yaml
+    type: config|noreplace
+    file_info:
+      mode: 0600
+
+  # Create state/cert directories
+  - dst: /etc/tangra-client/live
+    type: dir
+    file_info:
+      mode: 0700
+
+scripts:
+  postinstall: deploy/scripts/postinstall.sh
+  preremove: deploy/scripts/preremove.sh
+
+overrides:
+  deb:
+    depends:
+      - systemd
+  rpm:
+    depends:
+      - systemd

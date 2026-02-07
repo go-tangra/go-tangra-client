@@ -1,0 +1,38 @@
+[Unit]
+Description=Tangra Client Daemon - IPAM & LCM Agent
+Documentation=https://github.com/go-tangra/go-tangra-client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/tangra-client daemon \
+    --config-file /etc/tangra-client/config.yaml
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+# Allow read access to DMI tables (board/memory info) and system info
+ReadOnlyPaths=/sys/class/dmi /sys/firmware/dmi /proc
+# Allow read/write to config and state directory
+ReadWritePaths=/etc/tangra-client
+# Allow read/write to certificate live directory
+ReadWritePaths=/etc/tangra-client/live
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=tangra-client
+
+[Install]
+WantedBy=multi-user.target

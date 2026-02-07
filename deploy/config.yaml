@@ -1,0 +1,22 @@
+# Tangra Client Configuration
+# Place this file at /etc/tangra-client/config.yaml
+
+# LCM server address (gRPC with mTLS)
+server: "lcm.example.com:9100"
+
+# IPAM server address (gRPC with mTLS)
+ipam-server: "ipam.example.com:9400"
+
+# Tenant ID for IPAM device registration
+tenant-id: 1
+
+# Client ID (auto-generated from /etc/machine-id if empty)
+# client-id: ""
+
+# mTLS credentials
+cert: "/etc/tangra-client/client.crt"
+key: "/etc/tangra-client/client.key"
+ca: "/etc/tangra-client/ca.crt"
+
+# Configuration and state directory
+config-dir: "/etc/tangra-client"
