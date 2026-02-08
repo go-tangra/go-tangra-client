@@ -124,6 +124,7 @@ func initConfig() error {
 	} else {
 		dir := GetConfigDir()
 		viper.AddConfigPath(dir)
+		viper.AddConfigPath("/etc/tangra-client")
 		viper.SetConfigName("config")
 		viper.SetConfigType("yaml")
 	}
