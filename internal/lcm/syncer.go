@@ -12,9 +12,8 @@ import (
 )
 
 // SyncCertificates fetches and stores all certificates for the client
-func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, clientID string) (int, error) {
+func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) (int, error) {
 	resp, err := grpcClient.ListClientCertificates(ctx, &lcmV1.ListClientCertificatesRequest{
-		ClientId:              &clientID,
 		IncludeCertificatePem: boolPtr(true),
 	})
 	if err != nil {

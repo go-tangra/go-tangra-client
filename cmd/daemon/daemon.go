@@ -221,7 +221,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				// Initial sync
 				fmt.Println("LCM: Syncing certificates...")
-				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig, clientID)
+				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
 				if err != nil {
 					fmt.Printf("LCM: Initial sync failed: %v\n", err)
 				} else {
@@ -230,7 +230,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				// Start streaming
 				fmt.Println("LCM: Listening for certificate updates...")
-				return lcm.RunStreamer(ctx, lcmClient, certStore, hookRunner, hookConfig, clientID, syncInterval)
+				return lcm.RunStreamer(ctx, lcmClient, certStore, hookRunner, hookConfig, syncInterval)
 			})
 		})
 	}
@@ -293,7 +293,7 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 		} else {
 			defer lcmConn.Close()
 			lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
-			updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig, clientID)
+			updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
 			if err != nil {
 				fmt.Printf("LCM: Sync failed: %v\n", err)
 			} else {

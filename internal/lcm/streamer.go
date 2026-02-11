@@ -15,7 +15,7 @@ import (
 
 // RunStreamer connects to the LCM streaming RPC, handles certificate update events,
 // and reconnects with exponential backoff on disconnect.
-func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, clientID string, fallbackInterval time.Duration) error {
+func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, fallbackInterval time.Duration) error {
 	bo := backoff.New()
 
 	for {
@@ -25,7 +25,7 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 		default:
 		}
 
-		err := runStreamLoop(ctx, grpcClient, store, hookRunner, hookConfig, clientID)
+		err := runStreamLoop(ctx, grpcClient, store, hookRunner, hookConfig)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -35,7 +35,7 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 
 		// On disconnect, do a fallback sync
 		fmt.Println("LCM: Performing fallback sync...")
-		if _, err := SyncCertificates(ctx, grpcClient, store, hookRunner, hookConfig, clientID); err != nil {
+		if _, err := SyncCertificates(ctx, grpcClient, store, hookRunner, hookConfig); err != nil {
 			fmt.Printf("LCM: Fallback sync failed: %v\n", err)
 		} else {
 			// Sync succeeded, connection is healthy — reset backoff
@@ -49,10 +49,8 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 	}
 }
 
-func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, clientID string) error {
-	stream, err := grpcClient.StreamCertificateUpdates(ctx, &lcmV1.StreamCertificateUpdatesRequest{
-		ClientId: &clientID,
-	})
+func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) error {
+	stream, err := grpcClient.StreamCertificateUpdates(ctx, &lcmV1.StreamCertificateUpdatesRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
 	}
