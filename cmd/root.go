@@ -12,15 +12,16 @@ import (
 )
 
 var (
-	serverAddr     string
-	ipamServerAddr string
-	clientID       string
-	tenantID       uint32
-	certFile       string
-	keyFile        string
-	caFile         string
-	configDir  string
-	configFile string
+	serverAddr         string
+	ipamServerAddr     string
+	executorServerAddr string
+	clientID           string
+	tenantID           uint32
+	certFile           string
+	keyFile            string
+	caFile             string
+	configDir          string
+	configFile         string
 )
 
 var rootCmd = &cobra.Command{
@@ -57,6 +58,10 @@ func GetServerAddr() string {
 
 func GetIPAMServerAddr() string {
 	return viper.GetString("ipam-server")
+}
+
+func GetExecutorServerAddr() string {
+	return viper.GetString("executor-server")
 }
 
 func GetClientID() string {
@@ -100,6 +105,7 @@ func EnsureConfigDir() error {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&serverAddr, "server", "localhost:9100", "LCM server address")
 	rootCmd.PersistentFlags().StringVar(&ipamServerAddr, "ipam-server", "localhost:9400", "IPAM server address")
+	rootCmd.PersistentFlags().StringVar(&executorServerAddr, "executor-server", "localhost:9800", "Executor server address")
 	rootCmd.PersistentFlags().StringVar(&clientID, "client-id", "", "Client ID (auto-generated from machine ID if empty)")
 	rootCmd.PersistentFlags().Uint32Var(&tenantID, "tenant-id", 0, "IPAM tenant ID")
 	rootCmd.PersistentFlags().StringVar(&certFile, "cert", "", "Client certificate file path")
@@ -110,6 +116,7 @@ func init() {
 
 	_ = viper.BindPFlag("server", rootCmd.PersistentFlags().Lookup("server"))
 	_ = viper.BindPFlag("ipam-server", rootCmd.PersistentFlags().Lookup("ipam-server"))
+	_ = viper.BindPFlag("executor-server", rootCmd.PersistentFlags().Lookup("executor-server"))
 	_ = viper.BindPFlag("client-id", rootCmd.PersistentFlags().Lookup("client-id"))
 	_ = viper.BindPFlag("tenant-id", rootCmd.PersistentFlags().Lookup("tenant-id"))
 	_ = viper.BindPFlag("cert", rootCmd.PersistentFlags().Lookup("cert"))
@@ -145,6 +152,29 @@ func initConfig() error {
 	}
 
 	return nil
+}
+
+// BuildInfo holds version information injected at build time.
+type BuildInfo struct {
+	Version    string
+	CommitHash string
+	BuildDate  string
+}
+
+var buildInfo BuildInfo
+
+// SetBuildInfo sets the build information (called from main).
+func SetBuildInfo(version, commitHash, buildDate string) {
+	buildInfo = BuildInfo{
+		Version:    version,
+		CommitHash: commitHash,
+		BuildDate:  buildDate,
+	}
+}
+
+// GetBuildInfo returns the current build information.
+func GetBuildInfo() BuildInfo {
+	return buildInfo
 }
 
 func expandPath(path string) (string, error) {

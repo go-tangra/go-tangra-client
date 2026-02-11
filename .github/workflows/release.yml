@@ -41,6 +41,12 @@ jobs:
           repository: go-tangra/go-tangra-lcm
           path: go-tangra-lcm
 
+      - name: Checkout go-tangra-executor
+        uses: actions/checkout@v4
+        with:
+          repository: go-tangra/go-tangra-executor
+          path: go-tangra-executor
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -55,9 +61,14 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           VERSION=${GITHUB_REF_NAME#v}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
           go build -trimpath \
-            -ldflags "-s -w -extldflags '-static' -X main.version=${VERSION}" \
-            -o dist/tangra-client .
+            -ldflags "-s -w -extldflags '-static' \
+              -X main.buildVersion=${VERSION} \
+              -X main.commitHash=${COMMIT} \
+              -X main.buildDate=${DATE}" \
+            -o dist/tangra-client-linux-${{ matrix.goarch }} .
 
       - name: Install nfpm
         run: |
@@ -71,10 +82,16 @@ jobs:
           VERSION=${GITHUB_REF_NAME#v}
           export VERSION ARCH
 
+          # nfpm expects dist/tangra-client
+          ln -sf tangra-client-linux-${{ matrix.goarch }} dist/tangra-client
+
           # Build .deb
           envsubst < nfpm.yaml | nfpm package -f /dev/stdin -p deb -t dist/
           # Build .rpm
           envsubst < nfpm.yaml | nfpm package -f /dev/stdin -p rpm -t dist/
+
+          # Remove symlink so it doesn't end up in artifacts
+          rm -f dist/tangra-client
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -92,6 +109,11 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum tangra-client-linux-amd64 tangra-client-linux-arm64 > tangra-client-checksums.sha256
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

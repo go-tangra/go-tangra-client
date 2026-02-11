@@ -6,12 +6,20 @@ INSTALL_DIR := /usr/local/bin
 CONFIG_DIR := /etc/tangra-client
 SYSTEMD_DIR := /etc/systemd/system
 
+VERSION ?= 0.0.0-dev
+COMMIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+LDFLAGS := -s -w \
+	-X main.buildVersion=$(VERSION) \
+	-X main.commitHash=$(COMMIT_HASH) \
+	-X main.buildDate=$(BUILD_DATE)
+
 GO := go
 GOFLAGS := -v
 
 # Build the binary
 build:
-	$(GO) build $(GOFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) .
+	$(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME) .
 
 # Clean build artifacts
 clean:
@@ -55,10 +63,9 @@ uninstall:
 	@echo "Uninstalled. Config preserved at $(CONFIG_DIR)/"
 
 # Build .deb and .rpm packages locally
-VERSION ?= 0.0.0-dev
 ARCH ?= amd64
 package:
-	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -extldflags '-static'" -o dist/$(BINARY_NAME) .
+	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS) -extldflags '-static'" -o dist/$(BINARY_NAME) .
 	export VERSION=$(VERSION) ARCH=$(ARCH); \
 	envsubst < nfpm.yaml | nfpm package -f /dev/stdin -p deb -t dist/; \
 	envsubst < nfpm.yaml | nfpm package -f /dev/stdin -p rpm -t dist/
