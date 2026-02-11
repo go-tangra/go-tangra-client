@@ -21,9 +21,11 @@ import (
 	"github.com/go-tangra/go-tangra-client/internal/storage"
 	"github.com/go-tangra/go-tangra-client/pkg/client"
 
+	executorV1 "github.com/go-tangra/go-tangra-executor/gen/go/executor/service/v1"
 	ipampb "github.com/go-tangra/go-tangra-ipam/gen/go/ipam/service/v1"
 	lcmV1 "github.com/go-tangra/go-tangra-lcm/gen/go/lcm/service/v1"
 
+	executorint "github.com/go-tangra/go-tangra-client/internal/executor"
 	ipamint "github.com/go-tangra/go-tangra-client/internal/ipam"
 )
 
@@ -35,6 +37,7 @@ var (
 	oneShot          bool
 	disableIPAM      bool
 	disableLCM       bool
+	disableExecutor  bool
 	registerSecret   string
 )
 
@@ -74,6 +77,7 @@ func init() {
 	Command.Flags().BoolVar(&oneShot, "one-shot", false, "Run both syncs once and exit")
 	Command.Flags().BoolVar(&disableIPAM, "disable-ipam", false, "Skip IPAM sync goroutine")
 	Command.Flags().BoolVar(&disableLCM, "disable-lcm", false, "Skip LCM streaming goroutine")
+	Command.Flags().BoolVar(&disableExecutor, "disable-executor", false, "Skip executor streaming goroutine")
 	Command.Flags().StringVar(&registerSecret, "secret", "", "Shared secret for auto-registration when not yet registered")
 }
 
@@ -94,6 +98,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 	tenantID := cmd.GetTenantID()
 	serverAddr := cmd.GetServerAddr()
 	ipamServerAddr := cmd.GetIPAMServerAddr()
+	executorServerAddr := cmd.GetExecutorServerAddr()
 	configDir := cmd.GetConfigDir()
 
 	// mTLS credentials
@@ -155,6 +160,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 	fmt.Printf("  Client ID:    %s\n", clientID)
 	fmt.Printf("  LCM Server:   %s\n", serverAddr)
 	fmt.Printf("  IPAM Server:  %s\n", ipamServerAddr)
+	fmt.Printf("  Executor:     %s\n", executorServerAddr)
 	fmt.Printf("  Tenant ID:    %d\n", tenantID)
 	fmt.Printf("  Config Dir:   %s\n", configDir)
 	fmt.Printf("  Sync Interval: %s\n", syncInterval)
@@ -163,6 +169,9 @@ func runDaemon(c *cobra.Command, args []string) error {
 	}
 	if disableLCM {
 		fmt.Printf("  LCM: DISABLED\n")
+	}
+	if disableExecutor {
+		fmt.Printf("  Executor: DISABLED\n")
 	}
 	if deployHook != "" {
 		fmt.Printf("  Deploy Hook (bash): %s\n", deployHook)
@@ -239,6 +248,28 @@ func runDaemon(c *cobra.Command, args []string) error {
 				IpAddress: ipampb.NewIpAddressServiceClient(ipamConn),
 			}
 			return ipamint.RunSyncLoop(gCtx, clients, stateStore, tenantID, clientID, syncInterval)
+		})
+	}
+
+	// Executor goroutine
+	if !disableExecutor {
+		g.Go(func() error {
+			fmt.Println("Executor: Starting command streamer...")
+			executorConn, err := client.CreateMTLSConnection(executorServerAddr, certFile, keyFile, caFile)
+			if err != nil {
+				return fmt.Errorf("Executor: failed to connect: %w", err)
+			}
+			defer executorConn.Close()
+
+			executorClient := executorV1.NewExecutorClientServiceClient(executorConn)
+
+			// Initialize hash store
+			hashStore := executorint.NewHashStore(configDir)
+			if err := hashStore.Load(); err != nil {
+				return fmt.Errorf("Executor: failed to load hash store: %w", err)
+			}
+
+			return executorint.RunStreamer(gCtx, executorClient, hashStore, clientID, 5*time.Minute, syncInterval)
 		})
 	}
 

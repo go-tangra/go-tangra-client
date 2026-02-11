@@ -7,6 +7,9 @@ server: "lcm.example.com:9100"
 # IPAM server address (gRPC with mTLS)
 ipam-server: "ipam.example.com:9400"
 
+# Executor server address (gRPC with mTLS)
+executor-server: "executor.example.com:9800"
+
 # Tenant ID for IPAM device registration
 tenant-id: 1
 
