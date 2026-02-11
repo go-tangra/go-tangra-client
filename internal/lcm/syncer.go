@@ -8,11 +8,12 @@ import (
 	lcmV1 "github.com/go-tangra/go-tangra-lcm/gen/go/lcm/service/v1"
 
 	"github.com/go-tangra/go-tangra-client/internal/hook"
+	"github.com/go-tangra/go-tangra-client/internal/nginx"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
 )
 
 // SyncCertificates fetches and stores all certificates for the client
-func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) (int, error) {
+func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) (int, error) {
 	resp, err := grpcClient.ListClientCertificates(ctx, &lcmV1.ListClientCertificatesRequest{
 		IncludeCertificatePem: boolPtr(true),
 	})
@@ -94,8 +95,8 @@ func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClie
 		fmt.Printf("  %s: %s (serial: %s)\n", certName, action, certInfo.GetSerialNumber())
 		updatedCount++
 
-		// Run deploy hook
-		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt)
+		// Run deploy hook and nginx deployer
+		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
 	}
 
 	return updatedCount, nil
@@ -103,7 +104,7 @@ func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClie
 
 // SyncCertificateJobs fetches completed certificate jobs and downloads any
 // certificates (including private keys) that are not yet stored locally.
-func SyncCertificateJobs(ctx context.Context, jobClient lcmV1.LcmCertificateJobServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) (int, error) {
+func SyncCertificateJobs(ctx context.Context, jobClient lcmV1.LcmCertificateJobServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) (int, error) {
 	completedStatus := lcmV1.CertificateJobStatus_CERTIFICATE_JOB_STATUS_COMPLETED
 	resp, err := jobClient.ListJobs(ctx, &lcmV1.ListJobsRequest{
 		Status: &completedStatus,
@@ -207,44 +208,58 @@ func SyncCertificateJobs(ctx context.Context, jobClient lcmV1.LcmCertificateJobS
 			ExpiresAt:    result.GetExpiresAt(),
 			IssuedAt:     result.GetIssuedAt(),
 		}
-		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt)
+		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
 	}
 
 	return updatedCount, nil
 }
 
-func runDeployHookForCert(ctx context.Context, hookRunner *hook.Runner, hookConfig *hook.HookConfig, store *storage.CertStore, certInfo *lcmV1.CertificateInfo, certName string, isRenewal bool, expiresAt time.Time) {
-	if hookConfig == nil || (hookConfig.BashScript == "" && hookConfig.ScriptFile == "") {
-		return
+func runDeployHookForCert(ctx context.Context, hookRunner *hook.Runner, hookConfig *hook.HookConfig, store *storage.CertStore, certInfo *lcmV1.CertificateInfo, certName string, isRenewal bool, expiresAt time.Time, nginxDeployer *nginx.Deployer) {
+	// Run deploy hook script if configured
+	hasHook := hookConfig != nil && (hookConfig.BashScript != "" || hookConfig.ScriptFile != "")
+	if hasHook {
+		paths := store.GetPaths(certName)
+		hookCtx := &hook.HookContext{
+			CertName:      certName,
+			CertPath:      paths.CertFile,
+			KeyPath:       paths.PrivKeyFile,
+			ChainPath:     paths.ChainFile,
+			FullChainPath: paths.FullChainFile,
+			CommonName:    certInfo.GetCommonName(),
+			DNSNames:      certInfo.GetDnsNames(),
+			IPAddresses:   certInfo.GetIpAddresses(),
+			SerialNumber:  certInfo.GetSerialNumber(),
+			ExpiresAt:     expiresAt.Format(time.RFC3339),
+			IsRenewal:     isRenewal,
+		}
+
+		fmt.Printf("    Running deploy hook...\n")
+		result := hookRunner.RunDeployHook(ctx, hookConfig, hookCtx)
+		if result.Success {
+			fmt.Printf("    Hook completed successfully (%.2fs)\n", result.Duration.Seconds())
+			_ = store.UpdateMetadata(certName, func(m *storage.CertMetadata) {
+				m.LastHookExecution = time.Now()
+			})
+		} else {
+			fmt.Printf("    Hook failed (exit %d): %s\n", result.ExitCode, result.ErrorMsg)
+		}
+		if result.Output != "" {
+			fmt.Printf("    Output: %s\n", result.Output)
+		}
 	}
 
-	paths := store.GetPaths(certName)
-	hookCtx := &hook.HookContext{
-		CertName:      certName,
-		CertPath:      paths.CertFile,
-		KeyPath:       paths.PrivKeyFile,
-		ChainPath:     paths.ChainFile,
-		FullChainPath: paths.FullChainFile,
-		CommonName:    certInfo.GetCommonName(),
-		DNSNames:      certInfo.GetDnsNames(),
-		IPAddresses:   certInfo.GetIpAddresses(),
-		SerialNumber:  certInfo.GetSerialNumber(),
-		ExpiresAt:     expiresAt.Format(time.RFC3339),
-		IsRenewal:     isRenewal,
-	}
-
-	fmt.Printf("    Running deploy hook...\n")
-	result := hookRunner.RunDeployHook(ctx, hookConfig, hookCtx)
-	if result.Success {
-		fmt.Printf("    Hook completed successfully (%.2fs)\n", result.Duration.Seconds())
-		_ = store.UpdateMetadata(certName, func(m *storage.CertMetadata) {
-			m.LastHookExecution = time.Now()
-		})
-	} else {
-		fmt.Printf("    Hook failed (exit %d): %s\n", result.ExitCode, result.ErrorMsg)
-	}
-	if result.Output != "" {
-		fmt.Printf("    Output: %s\n", result.Output)
+	// Auto-deploy to nginx if deployer is available
+	if nginxDeployer != nil {
+		domains := certInfo.GetDnsNames()
+		if len(domains) == 0 && certInfo.GetCommonName() != "" {
+			domains = []string{certInfo.GetCommonName()}
+		}
+		if len(domains) > 0 {
+			deployResult := nginxDeployer.DeployCertificate(store, certName, domains)
+			if summary := deployResult.Summary(); summary != "" {
+				fmt.Print(summary)
+			}
+		}
 	}
 }
 

@@ -9,13 +9,14 @@ import (
 	lcmV1 "github.com/go-tangra/go-tangra-lcm/gen/go/lcm/service/v1"
 
 	"github.com/go-tangra/go-tangra-client/internal/hook"
+	"github.com/go-tangra/go-tangra-client/internal/nginx"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
 	"github.com/go-tangra/go-tangra-client/pkg/backoff"
 )
 
 // RunStreamer connects to the LCM streaming RPC, handles certificate update events,
 // and reconnects with exponential backoff on disconnect.
-func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, fallbackInterval time.Duration) error {
+func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer, fallbackInterval time.Duration) error {
 	bo := backoff.New()
 
 	for {
@@ -25,7 +26,7 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 		default:
 		}
 
-		err := runStreamLoop(ctx, grpcClient, store, hookRunner, hookConfig)
+		err := runStreamLoop(ctx, grpcClient, store, hookRunner, hookConfig, nginxDeployer)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
@@ -35,7 +36,7 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 
 		// On disconnect, do a fallback sync
 		fmt.Println("LCM: Performing fallback sync...")
-		if _, err := SyncCertificates(ctx, grpcClient, store, hookRunner, hookConfig); err != nil {
+		if _, err := SyncCertificates(ctx, grpcClient, store, hookRunner, hookConfig, nginxDeployer); err != nil {
 			fmt.Printf("LCM: Fallback sync failed: %v\n", err)
 		} else {
 			// Sync succeeded, connection is healthy — reset backoff
@@ -49,7 +50,7 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 	}
 }
 
-func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) error {
+func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) error {
 	stream, err := grpcClient.StreamCertificateUpdates(ctx, &lcmV1.StreamCertificateUpdatesRequest{})
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
@@ -64,11 +65,11 @@ func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient,
 			return err
 		}
 
-		handleUpdateEvent(ctx, event, store, hookRunner, hookConfig)
+		handleUpdateEvent(ctx, event, store, hookRunner, hookConfig, nginxDeployer)
 	}
 }
 
-func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) {
+func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) {
 	certInfo := event.GetCertificate()
 	if certInfo == nil {
 		return
@@ -137,7 +138,7 @@ func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent,
 		}
 		fmt.Printf("  Saved to %s/live/%s/\n", store.BaseDir(), certName)
 
-		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt)
+		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
 
 	case lcmV1.CertificateUpdateType_CERTIFICATE_REVOKED:
 		fmt.Printf("\n[%s] Certificate REVOKED: %s\n",

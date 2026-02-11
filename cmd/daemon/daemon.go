@@ -17,6 +17,7 @@ import (
 	"github.com/go-tangra/go-tangra-client/cmd"
 	"github.com/go-tangra/go-tangra-client/internal/hook"
 	"github.com/go-tangra/go-tangra-client/internal/lcm"
+	"github.com/go-tangra/go-tangra-client/internal/nginx"
 	"github.com/go-tangra/go-tangra-client/internal/registration"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
 	"github.com/go-tangra/go-tangra-client/pkg/backoff"
@@ -40,6 +41,15 @@ var (
 	disableLCM       bool
 	disableExecutor  bool
 	registerSecret   string
+
+	// Nginx SSL deploy options
+	nginxHTTP2      bool
+	nginxHSTS       bool
+	nginxHSTSMaxAge int
+	nginxOCSP       bool
+	nginxProtocols  string
+	nginxCiphers    string
+	nginxDHParam    string
 )
 
 // Command is the daemon command
@@ -80,6 +90,15 @@ func init() {
 	Command.Flags().BoolVar(&disableLCM, "disable-lcm", false, "Skip LCM streaming goroutine")
 	Command.Flags().BoolVar(&disableExecutor, "disable-executor", false, "Skip executor streaming goroutine")
 	Command.Flags().StringVar(&registerSecret, "secret", "", "Shared secret for auto-registration when not yet registered")
+
+	// Nginx SSL deploy options
+	Command.Flags().BoolVar(&nginxHTTP2, "nginx-http2", true, "Enable HTTP/2 in nginx SSL config")
+	Command.Flags().BoolVar(&nginxHSTS, "nginx-hsts", true, "Enable HSTS header in nginx SSL config")
+	Command.Flags().IntVar(&nginxHSTSMaxAge, "nginx-hsts-max-age", 31536000, "HSTS max-age in seconds")
+	Command.Flags().BoolVar(&nginxOCSP, "nginx-ocsp-stapling", true, "Enable OCSP stapling in nginx SSL config")
+	Command.Flags().StringVar(&nginxProtocols, "nginx-ssl-protocols", "TLSv1.2 TLSv1.3", "SSL protocols for nginx")
+	Command.Flags().StringVar(&nginxCiphers, "nginx-ssl-ciphers", "", "SSL cipher suite for nginx")
+	Command.Flags().StringVar(&nginxDHParam, "nginx-dhparam", "", "Path to DH parameters file for nginx")
 }
 
 func runDaemon(c *cobra.Command, args []string) error {
@@ -200,8 +219,26 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 	stateStore := storage.NewStateStore(configDir)
 
+	// Discover nginx for automatic SSL deployment
+	var nginxDeployer *nginx.Deployer
+	nginxInfo, nginxErr := nginx.Discover()
+	if nginxErr == nil {
+		fmt.Printf("  Nginx:        %s (v%s)\n", nginxInfo.BinaryPath, nginxInfo.Version)
+		nginxDeployer = nginx.NewDeployer(nginxInfo, &nginx.InstallOptions{
+			HTTP2:        nginxHTTP2,
+			HSTS:         nginxHSTS,
+			HSTSMaxAge:   nginxHSTSMaxAge,
+			OCSPStapling: nginxOCSP,
+			SSLProtocols: nginxProtocols,
+			SSLCiphers:   nginxCiphers,
+			DHParamPath:  nginxDHParam,
+		})
+	} else {
+		fmt.Printf("  Nginx:        not detected\n")
+	}
+
 	if oneShot {
-		return runOneShot(ctx, clientID, tenantID, serverAddr, ipamServerAddr, certFile, keyFile, caFile, certStore, stateStore, hookRunner, hookConfig)
+		return runOneShot(ctx, clientID, tenantID, serverAddr, ipamServerAddr, certFile, keyFile, caFile, certStore, stateStore, hookRunner, hookConfig, nginxDeployer)
 	}
 
 	// Continuous daemon mode with errgroup
@@ -222,7 +259,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				// Initial sync — mTLS certificates
 				fmt.Println("LCM: Syncing certificates...")
-				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
+				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig, nginxDeployer)
 				if err != nil {
 					fmt.Printf("LCM: mTLS cert sync failed: %v\n", err)
 				} else {
@@ -231,7 +268,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				// Sync certificate jobs (ACME, etc.)
 				fmt.Println("LCM: Syncing certificate jobs...")
-				jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig)
+				jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig, nginxDeployer)
 				if err != nil {
 					fmt.Printf("LCM: Job sync failed: %v\n", err)
 				} else {
@@ -240,7 +277,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				// Start streaming
 				fmt.Println("LCM: Listening for certificate updates...")
-				return lcm.RunStreamer(ctx, lcmClient, certStore, hookRunner, hookConfig, syncInterval)
+				return lcm.RunStreamer(ctx, lcmClient, certStore, hookRunner, hookConfig, nginxDeployer, syncInterval)
 			})
 		})
 	}
@@ -291,7 +328,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 	return g.Wait()
 }
 
-func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAddr, ipamServerAddr, certFile, keyFile, caFile string, certStore *storage.CertStore, stateStore *storage.StateStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) error {
+func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAddr, ipamServerAddr, certFile, keyFile, caFile string, certStore *storage.CertStore, stateStore *storage.StateStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) error {
 	fmt.Println("Running one-shot sync...")
 
 	// LCM sync
@@ -303,7 +340,7 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 		} else {
 			defer lcmConn.Close()
 			lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
-			updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
+			updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig, nginxDeployer)
 			if err != nil {
 				fmt.Printf("LCM: mTLS cert sync failed: %v\n", err)
 			} else {
@@ -311,7 +348,7 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 			}
 
 			jobClient := lcmV1.NewLcmCertificateJobServiceClient(lcmConn)
-			jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig)
+			jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig, nginxDeployer)
 			if err != nil {
 				fmt.Printf("LCM: Job sync failed: %v\n", err)
 			} else {
