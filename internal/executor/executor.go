@@ -2,6 +2,8 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -58,6 +60,12 @@ func CloseEnginePools() {
 	}
 }
 
+// computeContentHash returns the SHA-256 hex digest of the given content.
+func computeContentHash(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:])
+}
+
 // wrapJSConsole prepends a console shim so console.log/error/warn calls are captured.
 func wrapJSConsole(content string) string {
 	return `var console = { log: console_log, error: console_error, warn: console_error, info: console_log };
@@ -90,8 +98,14 @@ func FetchAndExecute(
 
 	scriptName := resp.GetScriptName()
 	content := resp.GetContent()
-	contentHash := resp.GetContentHash()
+	serverHash := resp.GetContentHash()
 	scriptType := resp.GetScriptType()
+
+	// Verify content hash locally
+	contentHash := computeContentHash(content)
+	if contentHash != serverHash {
+		return -1, "", "", fmt.Errorf("script %s content hash mismatch: server=%s local=%s", scriptName, serverHash[:12], contentHash[:12])
+	}
 
 	// Check hash approval
 	oldHash := hashStore.GetHash(scriptID)

@@ -85,7 +85,21 @@ func handleExecutionCommand(
 	scriptName := command.GetScriptName()
 	scriptType := command.GetScriptType()
 	content := command.GetContent()
-	contentHash := command.GetContentHash()
+	serverHash := command.GetContentHash()
+
+	// Verify content hash locally
+	contentHash := computeContentHash(content)
+	if contentHash != serverHash {
+		fmt.Printf("\n[%s] Executor: Hash mismatch for script %q (server=%s local=%s), rejecting\n",
+			time.Now().Format("15:04:05"), scriptName, serverHash[:12], contentHash[:12])
+		reason := "hash_mismatch"
+		_, _ = grpcClient.AckCommand(ctx, &executorV1.AckCommandRequest{
+			CommandId:       commandID,
+			Accepted:        false,
+			RejectionReason: &reason,
+		})
+		return
+	}
 
 	fmt.Printf("\n[%s] Executor: Received command for script %q (hash: %s)\n",
 		time.Now().Format("15:04:05"),
