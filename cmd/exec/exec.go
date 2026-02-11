@@ -94,12 +94,27 @@ func runExec(c *cobra.Command, args []string) error {
 		return answer == "y" || answer == "yes"
 	}
 
-	// Execute
+	// Execute and measure duration
+	startTime := time.Now()
 	exitCode, stdout, stderr, err := executor.FetchAndExecute(
 		ctx, grpcClient, scriptID, hashStore, promptFn, timeout,
 	)
+	durationMs := time.Since(startTime).Milliseconds()
+
 	if err != nil {
 		return fmt.Errorf("execution failed: %w", err)
+	}
+
+	// Report execution result to server
+	_, submitErr := grpcClient.SubmitExecution(ctx, &executorV1.SubmitExecutionRequest{
+		ScriptId:    scriptID,
+		ExitCode:    exitCode,
+		Output:      stdout,
+		ErrorOutput: stderr,
+		DurationMs:  durationMs,
+	})
+	if submitErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to report execution result: %v\n", submitErr)
 	}
 
 	// Print output

@@ -184,6 +184,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 	// Initialize hook runner and cert store for LCM
 	hookRunner := hook.NewRunner()
 	defer hookRunner.Close()
+	defer executorint.CloseEnginePools()
 
 	hookConfig := &hook.HookConfig{
 		BashScript: deployHook,
