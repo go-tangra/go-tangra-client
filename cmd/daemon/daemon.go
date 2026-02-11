@@ -19,6 +19,7 @@ import (
 	"github.com/go-tangra/go-tangra-client/internal/lcm"
 	"github.com/go-tangra/go-tangra-client/internal/registration"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
+	"github.com/go-tangra/go-tangra-client/pkg/backoff"
 	"github.com/go-tangra/go-tangra-client/pkg/client"
 
 	executorV1 "github.com/go-tangra/go-tangra-executor/gen/go/executor/service/v1"
@@ -209,68 +210,71 @@ func runDaemon(c *cobra.Command, args []string) error {
 	// LCM goroutine
 	if !disableLCM {
 		g.Go(func() error {
-			fmt.Println("LCM: Starting certificate streamer...")
-			lcmConn, err := client.CreateMTLSConnection(serverAddr, certFile, keyFile, caFile)
-			if err != nil {
-				return fmt.Errorf("LCM: failed to connect: %w", err)
-			}
-			defer lcmConn.Close()
+			return runWithReconnect(gCtx, "LCM", serverAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
+				lcmConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
+				if err != nil {
+					return fmt.Errorf("failed to connect: %w", err)
+				}
+				defer lcmConn.Close()
 
-			lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
+				lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
 
-			// Initial sync
-			fmt.Println("LCM: Syncing certificates...")
-			updated, err := lcm.SyncCertificates(gCtx, lcmClient, certStore, hookRunner, hookConfig, clientID)
-			if err != nil {
-				fmt.Printf("LCM: Initial sync failed: %v\n", err)
-			} else {
-				fmt.Printf("LCM: Sync complete: %d certificates updated\n", updated)
-			}
+				// Initial sync
+				fmt.Println("LCM: Syncing certificates...")
+				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig, clientID)
+				if err != nil {
+					fmt.Printf("LCM: Initial sync failed: %v\n", err)
+				} else {
+					fmt.Printf("LCM: Sync complete: %d certificates updated\n", updated)
+				}
 
-			// Start streaming
-			fmt.Println("LCM: Listening for certificate updates...")
-			return lcm.RunStreamer(gCtx, lcmClient, certStore, hookRunner, hookConfig, clientID, syncInterval)
+				// Start streaming
+				fmt.Println("LCM: Listening for certificate updates...")
+				return lcm.RunStreamer(ctx, lcmClient, certStore, hookRunner, hookConfig, clientID, syncInterval)
+			})
 		})
 	}
 
 	// IPAM goroutine
 	if !disableIPAM {
 		g.Go(func() error {
-			fmt.Println("IPAM: Starting device sync loop...")
-			ipamConn, err := client.CreateMTLSConnection(ipamServerAddr, certFile, keyFile, caFile)
-			if err != nil {
-				return fmt.Errorf("IPAM: failed to connect: %w", err)
-			}
-			defer ipamConn.Close()
+			return runWithReconnect(gCtx, "IPAM", ipamServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
+				ipamConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
+				if err != nil {
+					return fmt.Errorf("failed to connect: %w", err)
+				}
+				defer ipamConn.Close()
 
-			clients := &ipamint.IPAMClients{
-				Device:    ipampb.NewDeviceServiceClient(ipamConn),
-				Subnet:    ipampb.NewSubnetServiceClient(ipamConn),
-				IpAddress: ipampb.NewIpAddressServiceClient(ipamConn),
-			}
-			return ipamint.RunSyncLoop(gCtx, clients, stateStore, tenantID, clientID, syncInterval)
+				clients := &ipamint.IPAMClients{
+					Device:    ipampb.NewDeviceServiceClient(ipamConn),
+					Subnet:    ipampb.NewSubnetServiceClient(ipamConn),
+					IpAddress: ipampb.NewIpAddressServiceClient(ipamConn),
+				}
+				return ipamint.RunSyncLoop(ctx, clients, stateStore, tenantID, clientID, syncInterval)
+			})
 		})
 	}
 
 	// Executor goroutine
 	if !disableExecutor {
 		g.Go(func() error {
-			fmt.Println("Executor: Starting command streamer...")
-			executorConn, err := client.CreateMTLSConnection(executorServerAddr, certFile, keyFile, caFile)
-			if err != nil {
-				return fmt.Errorf("Executor: failed to connect: %w", err)
-			}
-			defer executorConn.Close()
+			return runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
+				executorConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
+				if err != nil {
+					return fmt.Errorf("failed to connect: %w", err)
+				}
+				defer executorConn.Close()
 
-			executorClient := executorV1.NewExecutorClientServiceClient(executorConn)
+				executorClient := executorV1.NewExecutorClientServiceClient(executorConn)
 
-			// Initialize hash store
-			hashStore := executorint.NewHashStore(configDir)
-			if err := hashStore.Load(); err != nil {
-				return fmt.Errorf("Executor: failed to load hash store: %w", err)
-			}
+				// Initialize hash store
+				hashStore := executorint.NewHashStore(configDir)
+				if err := hashStore.Load(); err != nil {
+					return fmt.Errorf("failed to load hash store: %w", err)
+				}
 
-			return executorint.RunStreamer(gCtx, executorClient, hashStore, clientID, 5*time.Minute, syncInterval)
+				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, 5*time.Minute, syncInterval)
+			})
 		})
 	}
 
@@ -324,6 +328,35 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 
 	fmt.Println("\nOne-shot sync complete.")
 	return nil
+}
+
+// runWithReconnect wraps a service function with connection-level reconnect and exponential backoff.
+// If the service function returns an error (connection lost, stream broken, etc.), a new connection
+// is established after a backoff delay. The backoff resets on successful connection.
+func runWithReconnect(ctx context.Context, name, serverAddr, certFile, keyFile, caFile string, fn func(ctx context.Context, addr, certFile, keyFile, caFile string) error) error {
+	bo := backoff.New()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		fmt.Printf("%s: Connecting to %s...\n", name, serverAddr)
+		err := fn(ctx, serverAddr, certFile, keyFile, caFile)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			fmt.Printf("%s: Connection error: %v\n", name, err)
+		}
+
+		fmt.Printf("%s: ", name)
+		if _, cancelled := bo.Wait(ctx); cancelled {
+			return nil
+		}
+	}
 }
 
 func fileExists(path string) bool {

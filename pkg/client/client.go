@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 )
 
 // SetDefaultCertPaths sets default certificate file paths if not provided
@@ -135,7 +137,14 @@ func CreateMTLSConnection(serverAddr, certFile, keyFile, caFile string) (*grpc.C
 	}
 
 	creds := credentials.NewTLS(tlsConfig)
-	conn, err := grpc.NewClient(serverAddr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(serverAddr,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                30 * time.Second,
+			Timeout:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to server '%s' with mTLS: %w", serverAddr, err)
 	}

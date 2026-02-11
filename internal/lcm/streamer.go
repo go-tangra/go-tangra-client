@@ -10,11 +10,14 @@ import (
 
 	"github.com/go-tangra/go-tangra-client/internal/hook"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
+	"github.com/go-tangra/go-tangra-client/pkg/backoff"
 )
 
 // RunStreamer connects to the LCM streaming RPC, handles certificate update events,
-// and reconnects with fallback sync on disconnect.
+// and reconnects with exponential backoff on disconnect.
 func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, clientID string, fallbackInterval time.Duration) error {
+	bo := backoff.New()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -34,13 +37,14 @@ func RunStreamer(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, s
 		fmt.Println("LCM: Performing fallback sync...")
 		if _, err := SyncCertificates(ctx, grpcClient, store, hookRunner, hookConfig, clientID); err != nil {
 			fmt.Printf("LCM: Fallback sync failed: %v\n", err)
+		} else {
+			// Sync succeeded, connection is healthy — reset backoff
+			bo.Reset()
 		}
 
-		fmt.Printf("LCM: Reconnecting in %s...\n", fallbackInterval)
-		select {
-		case <-ctx.Done():
+		fmt.Print("LCM: ")
+		if _, cancelled := bo.Wait(ctx); cancelled {
 			return nil
-		case <-time.After(fallbackInterval):
 		}
 	}
 }

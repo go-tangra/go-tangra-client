@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-client/internal/machine"
 	"github.com/go-tangra/go-tangra-client/internal/storage"
+	"github.com/go-tangra/go-tangra-client/pkg/backoff"
 
 	ipampb "github.com/go-tangra/go-tangra-ipam/gen/go/ipam/service/v1"
 )
@@ -18,7 +19,7 @@ type IPAMClients struct {
 	IpAddress ipampb.IpAddressServiceClient
 }
 
-// SyncDevice performs a single device sync: collect → diff → create/update → save state
+// SyncDevice performs a single device sync: collect -> diff -> create/update -> save state
 func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.StateStore, tenantID uint32, clientID string) (bool, error) {
 	// Collect current host info
 	info := machine.CollectHostInfo()
@@ -93,15 +94,25 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 
 // RunSyncLoop runs the IPAM sync loop at the given interval
 func RunSyncLoop(ctx context.Context, clients *IPAMClients, stateStore *storage.StateStore, tenantID uint32, clientID string, interval time.Duration) error {
+	bo := backoff.New()
+
 	// Initial sync
 	fmt.Println("IPAM: Running initial sync...")
 	changed, err := SyncDevice(ctx, clients, stateStore, tenantID, clientID)
 	if err != nil {
 		fmt.Printf("IPAM: Initial sync failed: %v\n", err)
-	} else if changed {
-		fmt.Println("IPAM: Initial sync completed with changes")
+		// Backoff before first tick
+		fmt.Print("IPAM: ")
+		if _, cancelled := bo.Wait(ctx); cancelled {
+			return nil
+		}
 	} else {
-		fmt.Println("IPAM: Initial sync completed, no changes")
+		bo.Reset()
+		if changed {
+			fmt.Println("IPAM: Initial sync completed with changes")
+		} else {
+			fmt.Println("IPAM: Initial sync completed, no changes")
+		}
 	}
 
 	ticker := time.NewTicker(interval)
@@ -117,8 +128,16 @@ func RunSyncLoop(ctx context.Context, clients *IPAMClients, stateStore *storage.
 			changed, err := SyncDevice(ctx, clients, stateStore, tenantID, clientID)
 			if err != nil {
 				fmt.Printf("IPAM: Sync failed: %v\n", err)
-			} else if changed {
-				fmt.Println("IPAM: Sync completed with changes")
+				// On repeated failures, use backoff for next retry
+				fmt.Print("IPAM: ")
+				if _, cancelled := bo.Wait(ctx); cancelled {
+					return nil
+				}
+			} else {
+				bo.Reset()
+				if changed {
+					fmt.Println("IPAM: Sync completed with changes")
+				}
 			}
 		}
 	}

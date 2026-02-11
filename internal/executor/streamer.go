@@ -7,10 +7,12 @@ import (
 	"time"
 
 	executorV1 "github.com/go-tangra/go-tangra-executor/gen/go/executor/service/v1"
+
+	"github.com/go-tangra/go-tangra-client/pkg/backoff"
 )
 
 // RunStreamer connects to the executor StreamCommands RPC, processes execution
-// commands, and reconnects with backoff on disconnect.
+// commands, and reconnects with exponential backoff on disconnect.
 func RunStreamer(
 	ctx context.Context,
 	grpcClient executorV1.ExecutorClientServiceClient,
@@ -19,6 +21,8 @@ func RunStreamer(
 	timeout time.Duration,
 	reconnectInterval time.Duration,
 ) error {
+	bo := backoff.New()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -34,11 +38,9 @@ func RunStreamer(
 			fmt.Printf("Executor: Stream disconnected: %v\n", err)
 		}
 
-		fmt.Printf("Executor: Reconnecting in %s...\n", reconnectInterval)
-		select {
-		case <-ctx.Done():
+		fmt.Print("Executor: ")
+		if _, cancelled := bo.Wait(ctx); cancelled {
 			return nil
-		case <-time.After(reconnectInterval):
 		}
 	}
 }
