@@ -140,8 +140,8 @@ func CreateMTLSConnection(serverAddr, certFile, keyFile, caFile string) (*grpc.C
 	conn, err := grpc.NewClient(serverAddr,
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                30 * time.Second,
-			Timeout:             10 * time.Second,
+			Time:                5 * time.Minute,
+			Timeout:             20 * time.Second,
 			PermitWithoutStream: true,
 		}),
 	)

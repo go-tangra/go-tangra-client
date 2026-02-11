@@ -101,6 +101,118 @@ func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClie
 	return updatedCount, nil
 }
 
+// SyncCertificateJobs fetches completed certificate jobs and downloads any
+// certificates (including private keys) that are not yet stored locally.
+func SyncCertificateJobs(ctx context.Context, jobClient lcmV1.LcmCertificateJobServiceClient, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig) (int, error) {
+	completedStatus := lcmV1.CertificateJobStatus_CERTIFICATE_JOB_STATUS_COMPLETED
+	resp, err := jobClient.ListJobs(ctx, &lcmV1.ListJobsRequest{
+		Status: &completedStatus,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("failed to list certificate jobs: %w", err)
+	}
+
+	updatedCount := 0
+
+	for _, job := range resp.GetJobs() {
+		certName := job.GetCommonName()
+		if certName == "" {
+			continue
+		}
+
+		// Check if certificate already exists locally with same serial
+		existingMeta, _ := store.LoadMetadata(certName)
+
+		// If cert exists and has a private key, check if it needs updating
+		if existingMeta != nil {
+			// Already have this cert, check if key is present
+			existingKey, _ := store.LoadPrivateKey(certName)
+			if existingKey != "" {
+				continue
+			}
+			// Key is missing — re-download
+			fmt.Printf("  %s: private key missing, re-downloading...\n", certName)
+		}
+
+		// Download the full result including private key
+		includeKey := true
+		result, err := jobClient.GetJobResult(ctx, &lcmV1.GetJobResultRequest{
+			JobId:             job.GetJobId(),
+			IncludePrivateKey: &includeKey,
+		})
+		if err != nil {
+			fmt.Printf("  %s: failed to get job result: %v\n", certName, err)
+			continue
+		}
+
+		if result.GetStatus() != lcmV1.CertificateJobStatus_CERTIFICATE_JOB_STATUS_COMPLETED {
+			continue
+		}
+
+		certPEM := result.GetCertificatePem()
+		if certPEM == "" {
+			fmt.Printf("  %s: no certificate PEM in job result\n", certName)
+			continue
+		}
+
+		keyPEM := result.GetPrivateKeyPem()
+		caCertPEM := result.GetCaCertificatePem()
+
+		isRenewal := existingMeta != nil
+		previousSerial := ""
+		renewalCount := 0
+		if isRenewal {
+			previousSerial = existingMeta.SerialNumber
+			renewalCount = existingMeta.RenewalCount + 1
+		}
+
+		var expiresAt time.Time
+		if result.GetExpiresAt() != nil {
+			expiresAt = result.GetExpiresAt().AsTime()
+		}
+		var issuedAt time.Time
+		if result.GetIssuedAt() != nil {
+			issuedAt = result.GetIssuedAt().AsTime()
+		}
+
+		metadata := &storage.CertMetadata{
+			Name:           certName,
+			CommonName:     certName,
+			SerialNumber:   result.GetSerialNumber(),
+			IssuedAt:       issuedAt,
+			ExpiresAt:      expiresAt,
+			IssuerName:     job.GetIssuerName(),
+			PreviousSerial: previousSerial,
+			RenewalCount:   renewalCount,
+		}
+
+		if err := store.SaveCertificate(certName, certPEM, keyPEM, caCertPEM, metadata); err != nil {
+			fmt.Printf("  %s: failed to save: %v\n", certName, err)
+			continue
+		}
+
+		action := "downloaded"
+		if isRenewal {
+			action = "renewed"
+		}
+		fmt.Printf("  %s: %s (issuer: %s, serial: %s)\n", certName, action, job.GetIssuerName(), result.GetSerialNumber())
+		updatedCount++
+
+		// Run deploy hook using a minimal CertificateInfo for compatibility
+		certInfo := &lcmV1.CertificateInfo{
+			Name:         certName,
+			CommonName:   certName,
+			SerialNumber: result.GetSerialNumber(),
+			IssuerName:   job.GetIssuerName(),
+			ExpiresAt:    result.GetExpiresAt(),
+			IssuedAt:     result.GetIssuedAt(),
+		}
+		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt)
+	}
+
+	return updatedCount, nil
+}
+
 func runDeployHookForCert(ctx context.Context, hookRunner *hook.Runner, hookConfig *hook.HookConfig, store *storage.CertStore, certInfo *lcmV1.CertificateInfo, certName string, isRenewal bool, expiresAt time.Time) {
 	if hookConfig == nil || (hookConfig.BashScript == "" && hookConfig.ScriptFile == "") {
 		return

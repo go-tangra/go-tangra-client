@@ -218,14 +218,24 @@ func runDaemon(c *cobra.Command, args []string) error {
 				defer lcmConn.Close()
 
 				lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
+				jobClient := lcmV1.NewLcmCertificateJobServiceClient(lcmConn)
 
-				// Initial sync
+				// Initial sync — mTLS certificates
 				fmt.Println("LCM: Syncing certificates...")
 				updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
 				if err != nil {
-					fmt.Printf("LCM: Initial sync failed: %v\n", err)
+					fmt.Printf("LCM: mTLS cert sync failed: %v\n", err)
 				} else {
-					fmt.Printf("LCM: Sync complete: %d certificates updated\n", updated)
+					fmt.Printf("LCM: mTLS sync complete: %d certificates updated\n", updated)
+				}
+
+				// Sync certificate jobs (ACME, etc.)
+				fmt.Println("LCM: Syncing certificate jobs...")
+				jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig)
+				if err != nil {
+					fmt.Printf("LCM: Job sync failed: %v\n", err)
+				} else {
+					fmt.Printf("LCM: Job sync complete: %d certificates downloaded\n", jobUpdated)
 				}
 
 				// Start streaming
@@ -295,9 +305,17 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 			lcmClient := lcmV1.NewLcmClientServiceClient(lcmConn)
 			updated, err := lcm.SyncCertificates(ctx, lcmClient, certStore, hookRunner, hookConfig)
 			if err != nil {
-				fmt.Printf("LCM: Sync failed: %v\n", err)
+				fmt.Printf("LCM: mTLS cert sync failed: %v\n", err)
 			} else {
-				fmt.Printf("LCM: %d certificates updated\n", updated)
+				fmt.Printf("LCM: %d mTLS certificates updated\n", updated)
+			}
+
+			jobClient := lcmV1.NewLcmCertificateJobServiceClient(lcmConn)
+			jobUpdated, err := lcm.SyncCertificateJobs(ctx, jobClient, certStore, hookRunner, hookConfig)
+			if err != nil {
+				fmt.Printf("LCM: Job sync failed: %v\n", err)
+			} else {
+				fmt.Printf("LCM: %d job certificates downloaded\n", jobUpdated)
 			}
 		}
 	}
