@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-tangra/go-tangra-client/cmd"
 	certCmd "github.com/go-tangra/go-tangra-client/cmd/cert"
+	configCmd "github.com/go-tangra/go-tangra-client/cmd/config"
 	"github.com/go-tangra/go-tangra-client/cmd/daemon"
 	execCmd "github.com/go-tangra/go-tangra-client/cmd/exec"
 	"github.com/go-tangra/go-tangra-client/cmd/register"
@@ -33,6 +34,7 @@ func main() {
 	rootCmd.AddCommand(version.Command)
 	rootCmd.AddCommand(update.Command)
 	rootCmd.AddCommand(certCmd.Command)
+	rootCmd.AddCommand(configCmd.Command)
 
 	if err := cmd.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

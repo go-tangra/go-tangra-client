@@ -78,7 +78,7 @@ func GetTenantID() uint32 {
 
 func GetConfigDir() string {
 	dir := viper.GetString("config-dir")
-	expanded, err := expandPath(dir)
+	expanded, err := ExpandPath(dir)
 	if err != nil {
 		return dir
 	}
@@ -100,6 +100,31 @@ func GetCAFile() string {
 func EnsureConfigDir() error {
 	dir := GetConfigDir()
 	return os.MkdirAll(dir, 0755)
+}
+
+// ValidConfigKeys lists all configuration keys that can be read/written via the config command.
+var ValidConfigKeys = []string{
+	"server",
+	"ipam-server",
+	"executor-server",
+	"client-id",
+	"tenant-id",
+	"cert",
+	"key",
+	"ca",
+	"config-dir",
+}
+
+// GetConfigFilePath returns the resolved path to the active config file.
+func GetConfigFilePath() string {
+	if configFile != "" {
+		p, err := ExpandPath(configFile)
+		if err != nil {
+			return configFile
+		}
+		return p
+	}
+	return filepath.Join(GetConfigDir(), "config.yaml")
 }
 
 func init() {
@@ -177,7 +202,7 @@ func GetBuildInfo() BuildInfo {
 	return buildInfo
 }
 
-func expandPath(path string) (string, error) {
+func ExpandPath(path string) (string, error) {
 	if len(path) >= 2 && path[:2] == "~/" {
 		home, err := os.UserHomeDir()
 		if err != nil {
