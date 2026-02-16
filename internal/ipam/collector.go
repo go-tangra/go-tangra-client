@@ -22,6 +22,7 @@ type DeviceMetadata struct {
 	Memory      *machine.MemoryInfo     `json:"memory,omitempty"`
 	Disks       []machine.DiskInfo      `json:"disks,omitempty"`
 	Interfaces  []machine.InterfaceInfo `json:"interfaces,omitempty"`
+	IPMI        *machine.IPMIInfo      `json:"ipmi,omitempty"`
 }
 
 // resolveDeviceType determines the IPAM device type based on host info
@@ -99,6 +100,7 @@ func BuildCreateRequest(info *machine.HostInfo, tenantID uint32) *ipampb.CreateD
 		OsType:       &osType,
 		OsVersion:    strPtr(info.Distro),
 		PrimaryIp:    strPtr(info.PrimaryIP),
+		ManagementIp: strPtr(info.IPMI.IP),
 		Manufacturer: strPtr(manufacturer),
 		Model:        strPtr(model),
 		SerialNumber: strPtr(serial),
@@ -125,6 +127,7 @@ func BuildUpdateRequest(deviceID string, info *machine.HostInfo) *ipampb.UpdateD
 			OsType:       &osType,
 			OsVersion:    strPtr(info.Distro),
 			PrimaryIp:    strPtr(info.PrimaryIP),
+			ManagementIp: strPtr(info.IPMI.IP),
 			Manufacturer: strPtr(manufacturer),
 			Model:        strPtr(model),
 			SerialNumber: strPtr(serial),
@@ -144,6 +147,11 @@ func buildMetadataJSON(info *machine.HostInfo) string {
 		memory = &info.Memory
 	}
 
+	var ipmiInfo *machine.IPMIInfo
+	if info.IPMI.IP != "" {
+		ipmiInfo = &info.IPMI
+	}
+
 	meta := DeviceMetadata{
 		MachineID:   info.MachineID,
 		Arch:        info.Arch,
@@ -154,6 +162,7 @@ func buildMetadataJSON(info *machine.HostInfo) string {
 		VMType:      info.VMType,
 		Board:       board,
 		Memory:      memory,
+		IPMI:        ipmiInfo,
 		Disks:       info.Disks,
 		Interfaces:  info.Interfaces,
 	}

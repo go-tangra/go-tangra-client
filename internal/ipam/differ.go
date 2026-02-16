@@ -46,6 +46,9 @@ func HasChanges(last *storage.HostInfoSnapshot, current *storage.HostInfoSnapsho
 	if last.IsContainer != current.IsContainer {
 		return true
 	}
+	if last.IPMIIP != current.IPMIIP {
+		return true
+	}
 
 	// Compare MAC addresses (sorted)
 	lastMACs := sortedCopy(last.MACAddresses)
@@ -84,6 +87,7 @@ func SnapshotFromHostInfo(info *machine.HostInfo) *storage.HostInfoSnapshot {
 		MACAddresses: macs,
 		IsVM:         info.IsVM,
 		IsContainer:  info.IsContainer,
+		IPMIIP:       info.IPMI.IP,
 	}
 }
 

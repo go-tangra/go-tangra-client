@@ -51,6 +51,15 @@ func runStatus(c *cobra.Command, args []string) error {
 	fmt.Printf("  Client ID:   %s\n", clientID)
 	fmt.Printf("  Hostname:    %s\n", machine.GetHostname())
 	fmt.Printf("  Machine ID:  %s\n", machine.GetClientID())
+
+	// IPMI info (collected inline for status display)
+	hostInfo := machine.CollectHostInfo()
+	if hostInfo.IPMI.IP != "" {
+		fmt.Printf("  IPMI IP:     %s\n", hostInfo.IPMI.IP)
+		if hostInfo.IPMI.MAC != "" {
+			fmt.Printf("  IPMI MAC:    %s\n", hostInfo.IPMI.MAC)
+		}
+	}
 	fmt.Println()
 
 	// IPAM device state

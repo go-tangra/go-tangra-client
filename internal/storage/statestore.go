@@ -30,6 +30,7 @@ type HostInfoSnapshot struct {
 	MACAddresses []string `json:"mac_addresses"`
 	IsVM         bool     `json:"is_vm"`
 	IsContainer  bool     `json:"is_container"`
+	IPMIIP       string   `json:"ipmi_ip,omitempty"`
 }
 
 // StateStore manages IPAM device state persistence

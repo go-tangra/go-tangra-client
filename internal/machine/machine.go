@@ -3,6 +3,7 @@ package machine
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -12,6 +13,9 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/bougou/go-ipmi"
 )
 
 // HostInfo contains comprehensive system information
@@ -33,6 +37,15 @@ type HostInfo struct {
 	VMType      string // "kvm", "vmware", "hyperv", "virtualbox", "wsl2", "docker", "lxc", etc.
 	Board       BoardInfo
 	Memory      MemoryInfo
+	IPMI        IPMIInfo
+}
+
+// IPMIInfo contains IPMI/BMC management interface details (bare-metal only)
+type IPMIInfo struct {
+	IP      string `json:"ip,omitempty"`
+	MAC     string `json:"mac,omitempty"`
+	Gateway string `json:"gateway,omitempty"`
+	Subnet  string `json:"subnet,omitempty"`
 }
 
 // MemoryInfo contains RAM module details from DMI tables (bare-metal only)
@@ -223,6 +236,7 @@ func CollectHostInfo() *HostInfo {
 		info.IsVM, info.IsContainer, info.VMType = detectVirtualization(&info.Board)
 		if !info.IsVM && !info.IsContainer {
 			info.Memory = getMemoryInfo()
+			info.IPMI = getIPMIInfo()
 		}
 	}
 
@@ -416,6 +430,35 @@ done:
 	}
 
 	return mem
+}
+
+// getIPMIInfo reads IPMI/BMC LAN configuration via the local IPMI device.
+// Returns empty IPMIInfo if IPMI is not available (VM, no device, no permission).
+func getIPMIInfo() IPMIInfo {
+	client, err := ipmi.NewOpenClient()
+	if err != nil {
+		return IPMIInfo{}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Connect(ctx); err != nil {
+		return IPMIInfo{}
+	}
+	defer client.Close(ctx)
+
+	lanConfig, err := client.GetLanConfig(ctx, 1)
+	if err != nil {
+		return IPMIInfo{}
+	}
+
+	return IPMIInfo{
+		IP:      lanConfig.IP.String(),
+		MAC:     lanConfig.MAC.String(),
+		Gateway: lanConfig.DefaultGatewayIP.String(),
+		Subnet:  lanConfig.SubnetMask.String(),
+	}
 }
 
 // getDisks scans /sys/block/ for block devices, skipping loop/ram/dm- devices
