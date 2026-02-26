@@ -67,36 +67,37 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 		return true, nil
 	}
 
-	// Check for changes
-	if !HasChanges(state.LastHostInfo, currentSnapshot) {
-		fmt.Println("  No changes detected")
-		return false, nil
+	// Check for hardware/network changes
+	changed := HasChanges(state.LastHostInfo, currentSnapshot)
+
+	if changed {
+		// Update existing device
+		fmt.Printf("  Changes detected, updating device %s...\n", state.DeviceID)
+		req := BuildUpdateRequest(state.DeviceID, info)
+		_, err = clients.Device.UpdateDevice(ctx, req)
+		if err != nil {
+			return false, fmt.Errorf("failed to update device: %w", err)
+		}
+
+		// Save updated state
+		state.LastSyncTime = time.Now()
+		state.LastHostInfo = currentSnapshot
+		if err := stateStore.Save(state); err != nil {
+			return false, fmt.Errorf("failed to save state: %w", err)
+		}
+
+		fmt.Printf("  Device updated: %s\n", state.DeviceID)
+
+		// Sync subnets and IPs (best-effort)
+		syncSubnetsAndAddresses(ctx, clients, info, state.DeviceID, tenantID)
+	} else {
+		fmt.Println("  No hardware changes detected")
 	}
 
-	// Update existing device
-	fmt.Printf("  Changes detected, updating device %s...\n", state.DeviceID)
-	req := BuildUpdateRequest(state.DeviceID, info)
-	_, err = clients.Device.UpdateDevice(ctx, req)
-	if err != nil {
-		return false, fmt.Errorf("failed to update device: %w", err)
-	}
-
-	// Save updated state
-	state.LastSyncTime = time.Now()
-	state.LastHostInfo = currentSnapshot
-	if err := stateStore.Save(state); err != nil {
-		return false, fmt.Errorf("failed to save state: %w", err)
-	}
-
-	fmt.Printf("  Device updated: %s\n", state.DeviceID)
-
-	// Sync subnets and IPs (best-effort)
-	syncSubnetsAndAddresses(ctx, clients, info, state.DeviceID, tenantID)
-
-	// Sync packages (best-effort)
+	// Always sync packages regardless of hardware changes
 	syncPackagesBestEffort(ctx, clients, state.DeviceID)
 
-	return true, nil
+	return changed, nil
 }
 
 // RunSyncLoop runs the IPAM sync loop at the given interval
