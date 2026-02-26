@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -29,6 +30,7 @@ import (
 
 	executorint "github.com/go-tangra/go-tangra-client/internal/executor"
 	ipamint "github.com/go-tangra/go-tangra-client/internal/ipam"
+	"github.com/go-tangra/go-tangra-client/internal/updater"
 )
 
 var (
@@ -321,12 +323,18 @@ func runDaemon(c *cobra.Command, args []string) error {
 					return fmt.Errorf("failed to load hash store: %w", err)
 				}
 
-				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, 5*time.Minute, syncInterval)
+				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval)
 			})
 		})
 	}
 
-	return g.Wait()
+	if err := g.Wait(); err != nil {
+		if errors.Is(err, executorint.ErrRestartRequested) {
+			return handleRestart()
+		}
+		return err
+	}
+	return nil
 }
 
 func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAddr, ipamServerAddr, certFile, keyFile, caFile string, certStore *storage.CertStore, stateStore *storage.StateStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) error {
@@ -403,6 +411,9 @@ func runWithReconnect(ctx context.Context, name, serverAddr, certFile, keyFile, 
 		fmt.Printf("%s: Connecting to %s...\n", name, serverAddr)
 		err := fn(ctx, serverAddr, certFile, keyFile, caFile)
 		if err != nil {
+			if errors.Is(err, executorint.ErrRestartRequested) {
+				return err
+			}
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -419,4 +430,22 @@ func runWithReconnect(ctx context.Context, name, serverAddr, certFile, keyFile, 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// handleRestart restarts the daemon after a successful binary update.
+// Under systemd, a clean exit (code 0) triggers automatic restart with the new binary.
+// Otherwise, it re-execs the current binary in-place.
+func handleRestart() error {
+	fmt.Println("Update applied, restarting...")
+
+	env := updater.DetectEnvironment()
+	if env.IsSystemd {
+		os.Exit(0)
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to find executable path: %w", err)
+	}
+	return syscall.Exec(exe, os.Args, os.Environ())
 }

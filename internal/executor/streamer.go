@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -18,6 +19,7 @@ func RunStreamer(
 	grpcClient executorV1.ExecutorClientServiceClient,
 	hashStore *HashStore,
 	clientID string,
+	currentVersion string,
 	timeout time.Duration,
 	reconnectInterval time.Duration,
 ) error {
@@ -30,8 +32,11 @@ func RunStreamer(
 		default:
 		}
 
-		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, timeout)
+		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, currentVersion, timeout)
 		if err != nil {
+			if errors.Is(err, ErrRestartRequested) {
+				return err
+			}
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -50,6 +55,7 @@ func runStreamLoop(
 	grpcClient executorV1.ExecutorClientServiceClient,
 	hashStore *HashStore,
 	clientID string,
+	currentVersion string,
 	timeout time.Duration,
 ) error {
 	stream, err := grpcClient.StreamCommands(ctx, &executorV1.StreamCommandsRequest{
@@ -70,7 +76,9 @@ func runStreamLoop(
 			return err
 		}
 
-		handleExecutionCommand(ctx, grpcClient, hashStore, command, timeout)
+		if err := handleExecutionCommand(ctx, grpcClient, hashStore, command, currentVersion, timeout); err != nil {
+			return err
+		}
 	}
 }
 
@@ -79,8 +87,15 @@ func handleExecutionCommand(
 	grpcClient executorV1.ExecutorClientServiceClient,
 	hashStore *HashStore,
 	command *executorV1.ExecutionCommand,
+	currentVersion string,
 	timeout time.Duration,
-) {
+) error {
+	// Dispatch by command type
+	if command.GetCommandType() == executorV1.CommandType_COMMAND_TYPE_CLIENT_UPDATE {
+		return handleUpdateCommand(ctx, grpcClient, command, currentVersion)
+	}
+
+	// Default: script execution
 	commandID := command.GetCommandId()
 	executionID := command.GetExecutionId()
 	scriptID := command.GetScriptId()
@@ -100,7 +115,7 @@ func handleExecutionCommand(
 			Accepted:        false,
 			RejectionReason: &reason,
 		})
-		return
+		return nil
 	}
 
 	fmt.Printf("\n[%s] Executor: Received command for script %q (hash: %s)\n",
@@ -128,7 +143,7 @@ func handleExecutionCommand(
 		if err != nil {
 			fmt.Printf("  Failed to ack rejection: %v\n", err)
 		}
-		return
+		return nil
 	}
 
 	fmt.Printf("  Hash approved, executing...\n")
@@ -156,4 +171,5 @@ func handleExecutionCommand(
 	if reportErr != nil {
 		fmt.Printf("  Failed to report result: %v\n", reportErr)
 	}
+	return nil
 }
