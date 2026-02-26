@@ -23,6 +23,13 @@ func (m *DNFManager) detectPackageManager() string {
 func (m *DNFManager) GetPackages() []PackageInfo {
 	packageManager := m.detectPackageManager()
 
+	// Refresh package metadata
+	makecacheCmd := exec.Command(packageManager, "makecache", "-q")
+	makecacheCmd.Env = append(os.Environ(), "LANG=C")
+	if err := makecacheCmd.Run(); err != nil {
+		fmt.Printf("  packages: %s makecache failed (continuing): %v\n", packageManager, err)
+	}
+
 	// Get installed packages
 	listCmd := exec.Command(packageManager, "list", "--installed")
 	listCmd.Env = append(os.Environ(), "LANG=C")
