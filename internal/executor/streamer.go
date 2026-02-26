@@ -59,7 +59,8 @@ func runStreamLoop(
 	timeout time.Duration,
 ) error {
 	stream, err := grpcClient.StreamCommands(ctx, &executorV1.StreamCommandsRequest{
-		ClientId: clientID,
+		ClientId:      clientID,
+		ClientVersion: currentVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
