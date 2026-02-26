@@ -101,6 +101,18 @@ func CombinePackageData(installedPackages map[string]PackageInfo, upgradablePack
 	return packages
 }
 
+// stripArchSuffix removes architecture suffix from RPM-style package names (e.g., "glibc.x86_64" -> "glibc")
+func stripArchSuffix(name string) string {
+	if idx := strings.LastIndex(name, "."); idx > 0 {
+		archSuffix := name[idx+1:]
+		if archSuffix == "x86_64" || archSuffix == "i686" || archSuffix == "i386" ||
+			archSuffix == "noarch" || archSuffix == "aarch64" || archSuffix == "arm64" {
+			return name[:idx]
+		}
+	}
+	return name
+}
+
 // extractBasePackageName strips architecture suffix and version from RPM-style package names
 func extractBasePackageName(packageString string) string {
 	baseName := packageString

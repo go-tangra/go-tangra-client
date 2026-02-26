@@ -119,7 +119,8 @@ func (m *DNFManager) parseUpgradablePackages(output string, packageManager strin
 			continue
 		}
 
-		packageName := fields[0]
+		rawName := fields[0]
+		packageName := stripArchSuffix(rawName)
 		availableVersion := fields[1]
 
 		// Get current version from installed packages
@@ -128,44 +129,12 @@ func (m *DNFManager) parseUpgradablePackages(output string, packageManager strin
 			currentVersion = p.CurrentVersion
 		}
 
-		// Try without architecture suffix
+		// Fallback: query directly using original name with arch
 		if currentVersion == "" {
-			basePackageName := packageName
-			if idx := strings.LastIndex(packageName, "."); idx > 0 {
-				archSuffix := packageName[idx+1:]
-				if archSuffix == "x86_64" || archSuffix == "i686" || archSuffix == "i386" ||
-					archSuffix == "noarch" || archSuffix == "aarch64" || archSuffix == "arm64" {
-					basePackageName = packageName[:idx]
-					if p, ok := installedPackages[basePackageName]; ok {
-						currentVersion = p.CurrentVersion
-					}
-				}
-			}
-
-			if currentVersion == "" {
-				for installedName, p := range installedPackages {
-					baseName := installedName
-					if idx := strings.LastIndex(installedName, "."); idx > 0 {
-						archSuffix := installedName[idx+1:]
-						if archSuffix == "x86_64" || archSuffix == "i686" || archSuffix == "i386" ||
-							archSuffix == "noarch" || archSuffix == "aarch64" || archSuffix == "arm64" {
-							baseName = installedName[:idx]
-						}
-					}
-					if baseName == basePackageName || baseName == packageName {
-						currentVersion = p.CurrentVersion
-						break
-					}
-				}
-			}
-		}
-
-		// Fallback: query directly
-		if currentVersion == "" {
-			getCurrentCmd := exec.Command(packageManager, "list", "--installed", packageName)
+			getCurrentCmd := exec.Command(packageManager, "list", "--installed", rawName)
 			if getCurrentOutput, err := getCurrentCmd.Output(); err == nil {
 				for _, currentLine := range strings.Split(string(getCurrentOutput), "\n") {
-					if strings.Contains(currentLine, packageName) && !strings.Contains(currentLine, "Installed") && !strings.Contains(currentLine, "Available") {
+					if strings.Contains(currentLine, rawName) && !strings.Contains(currentLine, "Installed") && !strings.Contains(currentLine, "Available") {
 						currentFields := strings.Fields(currentLine)
 						if len(currentFields) >= 2 {
 							currentVersion = currentFields[1]
@@ -209,7 +178,7 @@ func (m *DNFManager) parseInstalledPackages(output string) map[string]PackageInf
 			continue
 		}
 
-		packageName := strings.Split(parts[0], ".")[0]
+		packageName := stripArchSuffix(parts[0])
 		version := parts[1]
 
 		installedPackages[packageName] = PackageInfo{
