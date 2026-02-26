@@ -47,13 +47,7 @@ func (m *DNFManager) GetPackages() []PackageInfo {
 		upgradablePackages = m.parseUpgradablePackages(string(checkOutput), packageManager, installedPackages, securityPackages)
 	}
 
-	// Convert to simple map
-	installedMap := make(map[string]string)
-	for name, pkg := range installedPackages {
-		installedMap[name] = pkg.CurrentVersion
-	}
-
-	return CombinePackageData(installedMap, upgradablePackages)
+	return CombinePackageData(installedPackages, upgradablePackages)
 }
 
 // getSecurityPackages gets security packages from dnf/yum updateinfo

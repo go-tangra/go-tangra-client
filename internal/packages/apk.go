@@ -40,13 +40,7 @@ func (m *APKManager) GetPackages() []PackageInfo {
 		upgradablePackages = m.parseUpgradablePackages(string(upgradableOutput), installedPackages)
 	}
 
-	// Convert to simple map
-	installedMap := make(map[string]string)
-	for name, pkg := range installedPackages {
-		installedMap[name] = pkg.CurrentVersion
-	}
-
-	return CombinePackageData(installedMap, upgradablePackages)
+	return CombinePackageData(installedPackages, upgradablePackages)
 }
 
 // parseInstalledPackages parses apk list --installed output

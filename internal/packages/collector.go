@@ -75,22 +75,26 @@ func (m *Manager) detectPackageManager() string {
 	return "unknown"
 }
 
-// CombinePackageData merges installed and upgradable package lists, deduplicating by name
-func CombinePackageData(installedPackages map[string]string, upgradablePackages []PackageInfo) []PackageInfo {
+// CombinePackageData merges installed and upgradable package lists, deduplicating by name.
+// Descriptions from installed packages are carried over to upgradable entries.
+func CombinePackageData(installedPackages map[string]PackageInfo, upgradablePackages []PackageInfo) []PackageInfo {
 	packages := make([]PackageInfo, 0, len(installedPackages))
 	upgradableMap := make(map[string]bool)
 
 	for _, pkg := range upgradablePackages {
+		// Merge description from installed data if the upgradable entry lacks one
+		if pkg.Description == "" {
+			if installed, ok := installedPackages[pkg.Name]; ok {
+				pkg.Description = installed.Description
+			}
+		}
 		packages = append(packages, pkg)
 		upgradableMap[pkg.Name] = true
 	}
 
-	for name, version := range installedPackages {
+	for name, pkg := range installedPackages {
 		if !upgradableMap[name] {
-			packages = append(packages, PackageInfo{
-				Name:           name,
-				CurrentVersion: version,
-			})
+			packages = append(packages, pkg)
 		}
 	}
 

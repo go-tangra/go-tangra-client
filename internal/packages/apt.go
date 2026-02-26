@@ -48,13 +48,7 @@ func (m *APTManager) GetPackages() []PackageInfo {
 		upgradablePackages = m.parseAPTUpgrade(string(upgradeOutput))
 	}
 
-	// Convert to simple map for CombinePackageData
-	installedMap := make(map[string]string)
-	for name, pkg := range installedPackages {
-		installedMap[name] = pkg.CurrentVersion
-	}
-
-	return CombinePackageData(installedMap, upgradablePackages)
+	return CombinePackageData(installedPackages, upgradablePackages)
 }
 
 // parseAPTUpgrade parses apt/apt-get upgrade simulation output

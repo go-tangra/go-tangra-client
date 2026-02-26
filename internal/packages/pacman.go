@@ -22,10 +22,10 @@ func (m *PacmanManager) GetPackages() ([]PackageInfo, error) {
 	// Get installed packages
 	installedCmd := exec.Command("pacman", "-Q")
 	installedOutput, err := installedCmd.Output()
-	var installedPackages map[string]string
+	var installedPackages map[string]PackageInfo
 	if err != nil {
 		fmt.Printf("  packages: failed to get installed packages: %v\n", err)
-		installedPackages = make(map[string]string)
+		installedPackages = make(map[string]PackageInfo)
 	} else {
 		installedPackages = m.parseInstalledPackages(string(installedOutput))
 	}
@@ -82,8 +82,8 @@ func (m *PacmanManager) parseCheckUpdate(output string) []PackageInfo {
 }
 
 // parseInstalledPackages parses pacman -Q output
-func (m *PacmanManager) parseInstalledPackages(output string) map[string]string {
-	installedPackages := make(map[string]string)
+func (m *PacmanManager) parseInstalledPackages(output string) map[string]PackageInfo {
+	installedPackages := make(map[string]PackageInfo)
 
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
@@ -91,7 +91,10 @@ func (m *PacmanManager) parseInstalledPackages(output string) map[string]string 
 		if matches == nil {
 			continue
 		}
-		installedPackages[matches[1]] = matches[2]
+		installedPackages[matches[1]] = PackageInfo{
+			Name:           matches[1],
+			CurrentVersion: matches[2],
+		}
 	}
 
 	return installedPackages
