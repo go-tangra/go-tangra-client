@@ -31,7 +31,7 @@ func (m *DNFManager) GetPackages() []PackageInfo {
 	}
 
 	// Get installed packages
-	listCmd := exec.Command(packageManager, "list", "--installed")
+	listCmd := exec.Command(packageManager, "list", "installed")
 	listCmd.Env = append(os.Environ(), "LANG=C")
 	installedOutput, err := listCmd.Output()
 	var installedPackages map[string]PackageInfo
@@ -131,7 +131,7 @@ func (m *DNFManager) parseUpgradablePackages(output string, packageManager strin
 
 		// Fallback: query directly using original name with arch
 		if currentVersion == "" {
-			getCurrentCmd := exec.Command(packageManager, "list", "--installed", rawName)
+			getCurrentCmd := exec.Command(packageManager, "list", "installed", rawName)
 			if getCurrentOutput, err := getCurrentCmd.Output(); err == nil {
 				for _, currentLine := range strings.Split(string(getCurrentOutput), "\n") {
 					if strings.Contains(currentLine, rawName) && !strings.Contains(currentLine, "Installed") && !strings.Contains(currentLine, "Available") {
