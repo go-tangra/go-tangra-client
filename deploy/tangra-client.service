@@ -30,6 +30,9 @@ ReadWritePaths=/etc/tangra-client
 ReadWritePaths=/etc/tangra-client/live
 # Allow self-update of the binary (selfupdate writes a temp file in the same directory)
 ReadWritePaths=/usr/local/bin
+# Allow package manager metadata refresh (apt, dnf/yum)
+ReadWritePaths=/var/lib/apt/lists /var/cache/apt
+ReadWritePaths=/var/cache/dnf /var/cache/yum /var/lib/dnf /var/lib/rpm
 
 # Logging
 StandardOutput=journal
