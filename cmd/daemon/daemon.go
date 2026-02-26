@@ -293,9 +293,10 @@ func runDaemon(c *cobra.Command, args []string) error {
 				defer ipamConn.Close()
 
 				clients := &ipamint.IPAMClients{
-					Device:    ipampb.NewDeviceServiceClient(ipamConn),
-					Subnet:    ipampb.NewSubnetServiceClient(ipamConn),
-					IpAddress: ipampb.NewIpAddressServiceClient(ipamConn),
+					Device:        ipampb.NewDeviceServiceClient(ipamConn),
+					Subnet:        ipampb.NewSubnetServiceClient(ipamConn),
+					IpAddress:     ipampb.NewIpAddressServiceClient(ipamConn),
+					DevicePackage: ipampb.NewDevicePackageServiceClient(ipamConn),
 				}
 				return ipamint.RunSyncLoop(ctx, clients, stateStore, tenantID, clientID, syncInterval)
 			})
@@ -366,9 +367,10 @@ func runOneShot(ctx context.Context, clientID string, tenantID uint32, serverAdd
 		} else {
 			defer ipamConn.Close()
 			clients := &ipamint.IPAMClients{
-				Device:    ipampb.NewDeviceServiceClient(ipamConn),
-				Subnet:    ipampb.NewSubnetServiceClient(ipamConn),
-				IpAddress: ipampb.NewIpAddressServiceClient(ipamConn),
+				Device:        ipampb.NewDeviceServiceClient(ipamConn),
+				Subnet:        ipampb.NewSubnetServiceClient(ipamConn),
+				IpAddress:     ipampb.NewIpAddressServiceClient(ipamConn),
+				DevicePackage: ipampb.NewDevicePackageServiceClient(ipamConn),
 			}
 			changed, err := ipamint.SyncDevice(ctx, clients, stateStore, tenantID, clientID)
 			if err != nil {

@@ -14,9 +14,10 @@ import (
 
 // IPAMClients holds gRPC clients for all IPAM services used by the sync logic
 type IPAMClients struct {
-	Device    ipampb.DeviceServiceClient
-	Subnet    ipampb.SubnetServiceClient
-	IpAddress ipampb.IpAddressServiceClient
+	Device        ipampb.DeviceServiceClient
+	Subnet        ipampb.SubnetServiceClient
+	IpAddress     ipampb.IpAddressServiceClient
+	DevicePackage ipampb.DevicePackageServiceClient
 }
 
 // SyncDevice performs a single device sync: collect -> diff -> create/update -> save state
@@ -60,6 +61,9 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 		// Sync subnets and IPs (best-effort)
 		syncSubnetsAndAddresses(ctx, clients, info, deviceID, tenantID)
 
+		// Sync packages (best-effort)
+		syncPackagesBestEffort(ctx, clients, deviceID)
+
 		return true, nil
 	}
 
@@ -88,6 +92,9 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 
 	// Sync subnets and IPs (best-effort)
 	syncSubnetsAndAddresses(ctx, clients, info, state.DeviceID, tenantID)
+
+	// Sync packages (best-effort)
+	syncPackagesBestEffort(ctx, clients, state.DeviceID)
 
 	return true, nil
 }
