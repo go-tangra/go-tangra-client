@@ -8,7 +8,7 @@ Wants=network-online.target
 Type=simple
 ExecStart=/usr/local/bin/tangra-client daemon \
     --config-file /etc/tangra-client/config.yaml
-Restart=on-failure
+Restart=always
 RestartSec=10
 StartLimitIntervalSec=300
 StartLimitBurst=5
@@ -28,6 +28,8 @@ ReadOnlyPaths=/sys/class/dmi /sys/firmware/dmi /proc
 ReadWritePaths=/etc/tangra-client
 # Allow read/write to certificate live directory
 ReadWritePaths=/etc/tangra-client/live
+# Allow self-update of the binary (selfupdate writes a temp file in the same directory)
+ReadWritePaths=/usr/local/bin
 
 # Logging
 StandardOutput=journal
