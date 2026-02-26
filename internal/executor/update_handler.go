@@ -26,12 +26,6 @@ func handleUpdateCommand(
 	fmt.Printf("\n[%s] Executor: Received client update command (target: %s)\n",
 		time.Now().Format("15:04:05"), versionLabel(targetVersion))
 
-	// Ack the command
-	_, _ = grpcClient.AckCommand(ctx, &executorV1.AckCommandRequest{
-		CommandId: commandID,
-		Accepted:  true,
-	})
-
 	// Reject if running in a container
 	env := updater.DetectEnvironment()
 	if env.IsDocker || env.IsK8s {
@@ -41,14 +35,14 @@ func handleUpdateCommand(
 		}
 		msg := fmt.Sprintf("self-update not supported in %s environment", envName)
 		fmt.Printf("  Update rejected: %s\n", msg)
-		reportUpdateResult(ctx, grpcClient, commandID, 1, msg, "")
+		ackUpdate(ctx, grpcClient, commandID, false, msg)
 		return nil
 	}
 
 	if currentVersion == "dev" {
 		msg := "cannot update a development build"
 		fmt.Printf("  Update rejected: %s\n", msg)
-		reportUpdateResult(ctx, grpcClient, commandID, 1, msg, "")
+		ackUpdate(ctx, grpcClient, commandID, false, msg)
 		return nil
 	}
 
@@ -58,14 +52,14 @@ func handleUpdateCommand(
 	if err != nil {
 		msg := fmt.Sprintf("update check failed: %v", err)
 		fmt.Printf("  %s\n", msg)
-		reportUpdateResult(ctx, grpcClient, commandID, 1, "", msg)
+		ackUpdate(ctx, grpcClient, commandID, false, msg)
 		return nil
 	}
 
 	if !result.UpdateAvail {
 		msg := fmt.Sprintf("already up to date v%s", result.CurrentVersion)
 		fmt.Printf("  %s\n", msg)
-		reportUpdateResult(ctx, grpcClient, commandID, 0, msg, "")
+		ackUpdate(ctx, grpcClient, commandID, true, msg)
 		return nil
 	}
 
@@ -74,27 +68,28 @@ func handleUpdateCommand(
 	if err := updater.DownloadAndApply(ctx, result); err != nil {
 		msg := fmt.Sprintf("update failed: %v", err)
 		fmt.Printf("  %s\n", msg)
-		reportUpdateResult(ctx, grpcClient, commandID, 1, "", msg)
+		ackUpdate(ctx, grpcClient, commandID, false, msg)
 		return nil
 	}
 
 	// Report success before restarting
 	msg := fmt.Sprintf("updated v%s -> v%s", result.CurrentVersion, result.LatestVersion)
 	fmt.Printf("  %s\n", msg)
-	reportUpdateResult(ctx, grpcClient, commandID, 0, msg, "")
+	ackUpdate(ctx, grpcClient, commandID, true, msg)
 
 	return ErrRestartRequested
 }
 
-func reportUpdateResult(ctx context.Context, grpcClient executorV1.ExecutorClientServiceClient, commandID string, exitCode int32, output, errOutput string) {
-	_, err := grpcClient.ReportResult(ctx, &executorV1.ReportResultRequest{
-		ExecutionId: commandID, // reuse command_id as execution_id for update commands
-		ExitCode:    exitCode,
-		Output:      output,
-		ErrorOutput: errOutput,
+// ackUpdate sends the update result via AckCommand. There is no execution log
+// for update commands, so ReportResult cannot be used.
+func ackUpdate(ctx context.Context, grpcClient executorV1.ExecutorClientServiceClient, commandID string, ok bool, message string) {
+	_, err := grpcClient.AckCommand(ctx, &executorV1.AckCommandRequest{
+		CommandId:       commandID,
+		Accepted:        ok,
+		RejectionReason: &message,
 	})
 	if err != nil {
-		fmt.Printf("  Failed to report update result: %v\n", err)
+		fmt.Printf("  Failed to ack update result: %v\n", err)
 	}
 }
 
