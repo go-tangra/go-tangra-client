@@ -75,9 +75,10 @@ func runSync(c *cobra.Command, args []string) error {
 	defer conn.Close()
 
 	clients := &ipam.IPAMClients{
-		Device:    ipampb.NewDeviceServiceClient(conn),
-		Subnet:    ipampb.NewSubnetServiceClient(conn),
-		IpAddress: ipampb.NewIpAddressServiceClient(conn),
+		Device:        ipampb.NewDeviceServiceClient(conn),
+		Subnet:        ipampb.NewSubnetServiceClient(conn),
+		IpAddress:     ipampb.NewIpAddressServiceClient(conn),
+		DevicePackage: ipampb.NewDevicePackageServiceClient(conn),
 	}
 	stateStore := storage.NewStateStore(configDir)
 

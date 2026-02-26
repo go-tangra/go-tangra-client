@@ -26,6 +26,13 @@ func (m *APTManager) detectPackageManager() string {
 func (m *APTManager) GetPackages() []PackageInfo {
 	packageManager := m.detectPackageManager()
 
+	// Update package index so upgrade simulation sees latest available versions
+	updateCmd := exec.Command(packageManager, "update", "-o", "Debug::NoLocking=1", "-qq")
+	updateCmd.Env = append(os.Environ(), "LANG=C")
+	if err := updateCmd.Run(); err != nil {
+		fmt.Printf("  packages: apt update failed (continuing): %v\n", err)
+	}
+
 	// Get installed packages
 	installedCmd := exec.Command("dpkg-query", "-W", "-f", "${Package} ${Version} ${Description}\n")
 	installedCmd.Env = append(os.Environ(), "LANG=C")
