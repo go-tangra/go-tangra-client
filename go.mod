@@ -3,6 +3,7 @@ module github.com/go-tangra/go-tangra-client
 go 1.25.4
 
 require (
+	github.com/bougou/go-ipmi v0.8.1
 	github.com/go-tangra/go-tangra-executor v1.5.1-0.20260226082219-fd851acac29e
 	github.com/go-tangra/go-tangra-ipam v0.0.0
 	github.com/go-tangra/go-tangra-lcm v0.0.0
@@ -17,8 +18,7 @@ require (
 
 require (
 	aead.dev/minisign v0.2.0 // indirect
-	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20251209175733-2a1774d88802.1 // indirect
-	github.com/bougou/go-ipmi v0.8.1 // indirect
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1 // indirect
 	github.com/clipperhouse/displaywidth v0.6.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
