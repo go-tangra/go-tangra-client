@@ -75,21 +75,40 @@ func NewCertStore(baseDir string) (*CertStore, error) {
 	return store, nil
 }
 
-// GetPaths returns the paths for a certificate by name
+// SafeName maps a certificate name into a value that is safe to use as a
+// directory or filename. Wildcard certs arrive as "*.example.com" — the
+// literal "*" is legal on most filesystems but trips up shells, glob
+// patterns, and any tool that walks the live/ directory. Replace it with
+// "star" so "*.example.com" becomes "star.example.com" on disk while the
+// in-memory and over-the-wire name stays unchanged.
+//
+// metadata.Name continues to carry the original (un-sanitized) name, so
+// install reports and certbot-style external tooling that key on cert
+// names see the canonical value.
+//
+// Exported so callers (e.g. the streamer's log output) can produce paths
+// identical to what the store actually wrote to disk.
+func SafeName(name string) string {
+	return strings.ReplaceAll(name, "*", "star")
+}
+
+// GetPaths returns the paths for a certificate by name. The name is
+// sanitized for the filesystem (see SafeName).
 func (s *CertStore) GetPaths(certName string) *CertPaths {
-	certDir := filepath.Join(s.liveDir, certName)
+	safe := SafeName(certName)
+	certDir := filepath.Join(s.liveDir, safe)
 	return &CertPaths{
 		CertFile:      filepath.Join(certDir, "cert.pem"),
 		PrivKeyFile:   filepath.Join(certDir, "privkey.pem"),
 		ChainFile:     filepath.Join(certDir, "chain.pem"),
 		FullChainFile: filepath.Join(certDir, "fullchain.pem"),
-		MetadataFile:  filepath.Join(s.renewalDir, certName+".json"),
+		MetadataFile:  filepath.Join(s.renewalDir, safe+".json"),
 	}
 }
 
 // SaveCertificate stores a certificate and its components
 func (s *CertStore) SaveCertificate(certName string, certPEM, keyPEM, chainPEM string, metadata *CertMetadata) error {
-	certDir := filepath.Join(s.liveDir, certName)
+	certDir := filepath.Join(s.liveDir, SafeName(certName))
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		return fmt.Errorf("failed to create certificate directory: %w", err)
 	}
@@ -214,7 +233,7 @@ func (s *CertStore) CertificateExists(certName string) bool {
 
 // DeleteCertificate removes a certificate and its metadata
 func (s *CertStore) DeleteCertificate(certName string) error {
-	certDir := filepath.Join(s.liveDir, certName)
+	certDir := filepath.Join(s.liveDir, SafeName(certName))
 	if err := os.RemoveAll(certDir); err != nil {
 		return fmt.Errorf("failed to remove certificate directory: %w", err)
 	}
