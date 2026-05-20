@@ -65,11 +65,11 @@ func runStreamLoop(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient,
 			return err
 		}
 
-		handleUpdateEvent(ctx, event, store, hookRunner, hookConfig, nginxDeployer)
+		handleUpdateEvent(ctx, grpcClient, event, store, hookRunner, hookConfig, nginxDeployer)
 	}
 }
 
-func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) {
+func handleUpdateEvent(ctx context.Context, grpcClient lcmV1.LcmClientServiceClient, event *lcmV1.CertificateUpdateEvent, store *storage.CertStore, hookRunner *hook.Runner, hookConfig *hook.HookConfig, nginxDeployer *nginx.Deployer) {
 	certInfo := event.GetCertificate()
 	if certInfo == nil {
 		return
@@ -102,8 +102,12 @@ func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent,
 			renewalCount = existingMeta.RenewalCount + 1
 		}
 
-		keyPEM := ""
-		if store.CertificateExists(certName) {
+		// Prefer a private key carried in the event payload (sent by pushers
+		// like the deployer's tangra-client provider when delivering a cert
+		// whose key the agent doesn't already own). Fall back to the locally
+		// cached key for the normal LCM-issued renewal flow.
+		keyPEM := event.GetPrivateKeyPem()
+		if keyPEM == "" && store.CertificateExists(certName) {
 			keyPEM, _ = store.LoadPrivateKey(certName)
 		}
 
@@ -134,11 +138,19 @@ func handleUpdateEvent(ctx context.Context, event *lcmV1.CertificateUpdateEvent,
 
 		if err := store.SaveCertificate(certName, certPEM, keyPEM, caCertPEM, metadata); err != nil {
 			fmt.Printf("  Failed to save: %v\n", err)
+			reportInstallResult(ctx, grpcClient, certName, certPEM,
+				certInfo.GetSerialNumber(), certInfo.GetFingerprintSha256(),
+				lcmV1.InstalledCertificateStatus_INSTALLED_CERT_STATUS_FAILED,
+				fmt.Sprintf("save certificate: %v", err))
 			return
 		}
 		fmt.Printf("  Saved to %s/live/%s/\n", store.BaseDir(), certName)
 
 		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
+
+		reportInstallResult(ctx, grpcClient, certName, certPEM,
+			certInfo.GetSerialNumber(), certInfo.GetFingerprintSha256(),
+			lcmV1.InstalledCertificateStatus_INSTALLED_CERT_STATUS_INSTALLED, "")
 
 	case lcmV1.CertificateUpdateType_CERTIFICATE_REVOKED:
 		fmt.Printf("\n[%s] Certificate REVOKED: %s\n",
