@@ -38,6 +38,22 @@ func NewDeployer(info *NginxInfo, opts *InstallOptions) *Deployer {
 	}
 }
 
+// Reload sends the reload signal to the discovered nginx binary. This is
+// the only nginx side effect the daemon performs on cert install/renewal:
+// no config parsing, no vhost matching, no file rewrites. Operators wire
+// nginx to point at the live/<cn>/ paths once during initial setup; the
+// agent's job afterwards is just to refresh the in-memory cert state.
+//
+// Returns the underlying nginx error verbatim. Callers should treat a
+// non-nil error as best-effort failure (log + continue) — the cert is
+// already on disk regardless.
+func (d *Deployer) Reload() error {
+	if d == nil || d.nginxInfo == nil {
+		return nil
+	}
+	return d.nginxInfo.Reload()
+}
+
 // DeployCertificate finds SSL-enabled nginx server blocks matching the given domains,
 // updates their ssl_certificate / ssl_certificate_key paths (and optional SSL directives),
 // tests the config, and reloads nginx. HTTP-only vhosts are not converted to HTTPS.
@@ -66,14 +82,6 @@ func (d *Deployer) DeployCertificate(store *storage.CertStore, certName string, 
 	seen := make(map[string]int) // filePath:lineStart -> index in entries
 	var entries []blockEntry
 
-	// Track whether any SSL-enabled vhost serves this cert, even if the
-	// config doesn't need rewriting. On certificate RENEWAL the cert path
-	// stays the same (live/<cn>/fullchain.pem) but the bytes on disk
-	// change — nginx caches certs in memory and won't pick up the new
-	// material until reloaded. Without this flag the function would
-	// silently no-op on every renewal and leave the old cert in service.
-	matchedExistingCert := false
-
 	for _, domain := range domains {
 		block := parsedConfig.FindServerBlockByDomain(domain)
 		if block == nil {
@@ -85,12 +93,8 @@ func (d *Deployer) DeployCertificate(store *storage.CertStore, certName string, 
 			continue
 		}
 
-		// If the block already points at this cert, we don't need to
-		// edit its config — but we DO need to reload nginx so it
-		// re-reads the renewed file from disk. Record the match and
-		// move on; the reload happens after the loop below.
+		// Skip if cert path already points to the correct file
 		if block.SSLCertPath == certPaths.FullChainFile {
-			matchedExistingCert = true
 			continue
 		}
 
@@ -104,16 +108,6 @@ func (d *Deployer) DeployCertificate(store *storage.CertStore, certName string, 
 	}
 
 	if len(entries) == 0 {
-		// No vhost needs a config rewrite. If at least one already
-		// references this cert (renewal case), reload nginx so the
-		// fresh PEM bytes take effect. Otherwise nothing to do.
-		if matchedExistingCert {
-			if err := d.nginxInfo.Reload(); err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("nginx reload failed: %v", err))
-			} else {
-				result.Reloaded = true
-			}
-		}
 		return result
 	}
 
