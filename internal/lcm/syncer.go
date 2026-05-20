@@ -85,6 +85,10 @@ func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClie
 		// Save certificate
 		if err := store.SaveCertificate(certName, certPEM, keyPEM, caCertPEM, metadata); err != nil {
 			fmt.Printf("  %s: failed to save: %v\n", certName, err)
+			reportInstallResult(ctx, grpcClient, certName, certPEM,
+				certInfo.GetSerialNumber(), certInfo.GetFingerprintSha256(),
+				lcmV1.InstalledCertificateStatus_INSTALLED_CERT_STATUS_FAILED,
+				fmt.Sprintf("save certificate: %v", err))
 			continue
 		}
 
@@ -97,6 +101,10 @@ func SyncCertificates(ctx context.Context, grpcClient lcmV1.LcmClientServiceClie
 
 		// Run deploy hook and nginx deployer
 		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
+
+		reportInstallResult(ctx, grpcClient, certName, certPEM,
+			certInfo.GetSerialNumber(), certInfo.GetFingerprintSha256(),
+			lcmV1.InstalledCertificateStatus_INSTALLED_CERT_STATUS_INSTALLED, "")
 	}
 
 	return updatedCount, nil
