@@ -101,6 +101,19 @@ func init() {
 	Command.Flags().StringVar(&nginxProtocols, "nginx-ssl-protocols", "TLSv1.2 TLSv1.3", "SSL protocols for nginx")
 	Command.Flags().StringVar(&nginxCiphers, "nginx-ssl-ciphers", "", "SSL cipher suite for nginx")
 	Command.Flags().StringVar(&nginxDHParam, "nginx-dhparam", "", "Path to DH parameters file for nginx")
+
+	// Bind daemon flags to viper so they can also be set via
+	// /etc/tangra-client/config.yaml. With BindPFlag the CLI value
+	// (when explicitly passed) wins over the config file, and the
+	// config file wins over the flag's compile-time default — which
+	// is the priority operators usually expect.
+	_ = viper.BindPFlag("deploy-hook", Command.Flags().Lookup("deploy-hook"))
+	_ = viper.BindPFlag("deploy-script-hook", Command.Flags().Lookup("deploy-script-hook"))
+	_ = viper.BindPFlag("hook-timeout", Command.Flags().Lookup("hook-timeout"))
+	_ = viper.BindPFlag("sync-interval", Command.Flags().Lookup("sync-interval"))
+	_ = viper.BindPFlag("disable-ipam", Command.Flags().Lookup("disable-ipam"))
+	_ = viper.BindPFlag("disable-lcm", Command.Flags().Lookup("disable-lcm"))
+	_ = viper.BindPFlag("disable-executor", Command.Flags().Lookup("disable-executor"))
 }
 
 func runDaemon(c *cobra.Command, args []string) error {
@@ -122,6 +135,19 @@ func runDaemon(c *cobra.Command, args []string) error {
 	ipamServerAddr := cmd.GetIPAMServerAddr()
 	executorServerAddr := cmd.GetExecutorServerAddr()
 	configDir := cmd.GetConfigDir()
+
+	// Resolve daemon-scoped settings via viper so values declared in
+	// /etc/tangra-client/config.yaml take effect even when no CLI flag
+	// is passed (e.g. when running under systemd via ExecStart).
+	// BindPFlag was set up in init(), so the precedence is:
+	//   explicit CLI flag > config file > flag default.
+	deployHook = viper.GetString("deploy-hook")
+	deployScriptHook = viper.GetString("deploy-script-hook")
+	hookTimeout = viper.GetDuration("hook-timeout")
+	syncInterval = viper.GetDuration("sync-interval")
+	disableIPAM = viper.GetBool("disable-ipam")
+	disableLCM = viper.GetBool("disable-lcm")
+	disableExecutor = viper.GetBool("disable-executor")
 
 	// mTLS credentials
 	certFile := viper.GetString("cert")

@@ -23,3 +23,32 @@ ca: "/etc/tangra-client/ca.crt"
 
 # Configuration and state directory
 config-dir: "/etc/tangra-client"
+
+# --- daemon hook settings ---
+# These mirror the daemon's --deploy-hook / --deploy-script-hook /
+# --hook-timeout flags. Setting them here lets systemd units (which
+# typically invoke `tangra-client daemon` with no extra args) still
+# wire up the hook. CLI flags, when explicitly passed, override these.
+
+# Path to a bash script run after every certificate install/renewal.
+# Receives the cert metadata via LCM_* environment variables — see
+# examples/hooks/dump-vars.sh for the full variable list.
+# deploy-hook: "/etc/tangra-client/hooks/deploy.sh"
+
+# Path to a Lua (.lua) or JavaScript (.js) hook. Same metadata is
+# exposed as registered globals (LCM_CERT_NAME, LCM_COMMON_NAME, …)
+# plus helper functions (exec, readFile, writeFile, log).
+# See examples/hooks/dump-vars.{lua,js}.
+# deploy-script-hook: "/etc/tangra-client/hooks/deploy.lua"
+
+# Per-hook execution timeout. Default 5m.
+# hook-timeout: "5m"
+
+# --- daemon sync settings ---
+# IPAM sync interval and LCM fallback poll interval. Default 1h.
+# sync-interval: "1h"
+
+# Disable specific subsystems. Leave commented to keep all three on.
+# disable-ipam: false
+# disable-lcm: false
+# disable-executor: false

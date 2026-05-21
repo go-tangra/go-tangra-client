@@ -144,7 +144,7 @@ func handleUpdateEvent(ctx context.Context, grpcClient lcmV1.LcmClientServiceCli
 				fmt.Sprintf("save certificate: %v", err))
 			return
 		}
-		fmt.Printf("  Saved to %s/live/%s/\n", store.BaseDir(), certName)
+		fmt.Printf("  Saved to %s/live/%s/\n", store.BaseDir(), storage.SafeName(certName))
 
 		runDeployHookForCert(ctx, hookRunner, hookConfig, store, certInfo, certName, isRenewal, expiresAt, nginxDeployer)
 

@@ -113,6 +113,17 @@ var ValidConfigKeys = []string{
 	"key",
 	"ca",
 	"config-dir",
+	// Daemon-scoped hook + sync settings. These have no CLI default
+	// that's meaningful for /etc/tangra-client/config.yaml: the daemon
+	// flags themselves live in cmd/daemon and bind via BindPFlag at
+	// init() time.
+	"deploy-hook",
+	"deploy-script-hook",
+	"hook-timeout",
+	"sync-interval",
+	"disable-ipam",
+	"disable-lcm",
+	"disable-executor",
 }
 
 // GetConfigFilePath returns the resolved path to the active config file.

@@ -256,17 +256,17 @@ func runDeployHookForCert(ctx context.Context, hookRunner *hook.Runner, hookConf
 		}
 	}
 
-	// Auto-deploy to nginx if deployer is available
+	// If nginx is running on the host, send it a reload signal so it
+	// picks up the freshly written PEM bytes. We deliberately don't
+	// parse or rewrite nginx config — operators wire nginx to point at
+	// live/<cn>/ once during initial setup; the daemon's job afterwards
+	// is just to refresh the in-memory cert state on every install.
+	// Errors are logged but not fatal (the cert is already on disk).
 	if nginxDeployer != nil {
-		domains := certInfo.GetDnsNames()
-		if len(domains) == 0 && certInfo.GetCommonName() != "" {
-			domains = []string{certInfo.GetCommonName()}
-		}
-		if len(domains) > 0 {
-			deployResult := nginxDeployer.DeployCertificate(store, certName, domains)
-			if summary := deployResult.Summary(); summary != "" {
-				fmt.Print(summary)
-			}
+		if err := nginxDeployer.Reload(); err != nil {
+			fmt.Printf("    Nginx: reload failed: %v\n", err)
+		} else {
+			fmt.Println("    Nginx: reloaded")
 		}
 	}
 }

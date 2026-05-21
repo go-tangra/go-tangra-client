@@ -38,6 +38,22 @@ func NewDeployer(info *NginxInfo, opts *InstallOptions) *Deployer {
 	}
 }
 
+// Reload sends the reload signal to the discovered nginx binary. This is
+// the only nginx side effect the daemon performs on cert install/renewal:
+// no config parsing, no vhost matching, no file rewrites. Operators wire
+// nginx to point at the live/<cn>/ paths once during initial setup; the
+// agent's job afterwards is just to refresh the in-memory cert state.
+//
+// Returns the underlying nginx error verbatim. Callers should treat a
+// non-nil error as best-effort failure (log + continue) — the cert is
+// already on disk regardless.
+func (d *Deployer) Reload() error {
+	if d == nil || d.nginxInfo == nil {
+		return nil
+	}
+	return d.nginxInfo.Reload()
+}
+
 // DeployCertificate finds SSL-enabled nginx server blocks matching the given domains,
 // updates their ssl_certificate / ssl_certificate_key paths (and optional SSL directives),
 // tests the config, and reloads nginx. HTTP-only vhosts are not converted to HTTPS.
