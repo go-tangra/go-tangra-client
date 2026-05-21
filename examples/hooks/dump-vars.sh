@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 #
 # Example tangra-client deploy hook: dump every hook variable into a
-# timestamped file under /tmp so an operator can inspect what the
-# agent passed on the most recent cert update.
+# timestamped file so an operator can inspect what the agent passed
+# on the most recent cert update.
 #
 # Wire up via:
 #   tangra-client daemon --deploy-hook /path/to/dump-vars.sh
 #
 # All LCM_* variables come from the agent's hook runner — see
 # internal/hook/hook.go:buildEnvVars for the full list.
+#
+# NOTE: The systemd unit ships with PrivateTmp=true, which gives the
+# daemon its own /tmp namespace invisible to other processes. We
+# write under /var/log/tangra-client/ instead — /var is already in
+# ReadWritePaths so the sandbox allows it, and the directory is
+# visible from any shell without sudo gymnastics.
 
 set -euo pipefail
 
-out="/tmp/tangra-client-hook-bash.$(date +%Y%m%d-%H%M%S).log"
+logdir="/var/log/tangra-client"
+mkdir -p "$logdir"
+out="$logdir/hook-bash.$(date +%Y%m%d-%H%M%S).log"
 
 {
   echo "=== tangra-client deploy hook (bash) ==="

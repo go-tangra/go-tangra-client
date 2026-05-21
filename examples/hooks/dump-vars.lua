@@ -1,5 +1,5 @@
 -- Example tangra-client deploy hook (Lua): dump every hook variable
--- into a timestamped file under /tmp.
+-- into a timestamped file.
 --
 -- Wire up via:
 --   tangra-client daemon --deploy-script-hook /path/to/dump-vars.lua
@@ -8,9 +8,16 @@
 -- (see internal/hook/hook.go:registerHookContext). The `writeFile`
 -- helper is also injected — it accepts (path, content) and returns
 -- an error if the write fails.
+--
+-- NOTE: The systemd unit ships with PrivateTmp=true, which gives
+-- the daemon its own /tmp namespace invisible to other processes.
+-- We write under /var/log/tangra-client/ instead — /var is in
+-- ReadWritePaths and the directory is visible from any shell.
+
+exec("mkdir -p /var/log/tangra-client")
 
 local timestamp = os.date("%Y%m%d-%H%M%S")
-local out = "/tmp/tangra-client-hook-lua." .. timestamp .. ".log"
+local out = "/var/log/tangra-client/hook-lua." .. timestamp .. ".log"
 
 local lines = {
   "=== tangra-client deploy hook (lua) ===",
