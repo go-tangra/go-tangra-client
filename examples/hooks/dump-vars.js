@@ -9,12 +9,13 @@
 // helper is also injected — it accepts (path, content) and returns
 // an error if the write fails.
 //
-// NOTE: The systemd unit ships with PrivateTmp=true, which gives
-// the daemon its own /tmp namespace invisible to other processes.
-// We write under /var/log/tangra-client/ instead — /var is in
-// ReadWritePaths and the directory is visible from any shell.
+// NOTE: The systemd unit ships with PrivateTmp=true, which hides
+// /tmp from outside the service. We write under the config
+// directory instead — /etc/tangra-client/ is writable on every
+// released unit version, so the hook works regardless of whether
+// the operator has the latest systemd unit installed.
 
-exec('mkdir -p /var/log/tangra-client');
+exec('mkdir -p /etc/tangra-client/hook-logs');
 
 var d = new Date();
 var pad = function (n) { return (n < 10 ? '0' : '') + n; };

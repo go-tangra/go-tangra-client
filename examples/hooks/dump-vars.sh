@@ -10,15 +10,16 @@
 # All LCM_* variables come from the agent's hook runner — see
 # internal/hook/hook.go:buildEnvVars for the full list.
 #
-# NOTE: The systemd unit ships with PrivateTmp=true, which gives the
-# daemon its own /tmp namespace invisible to other processes. We
-# write under /var/log/tangra-client/ instead — /var is already in
-# ReadWritePaths so the sandbox allows it, and the directory is
-# visible from any shell without sudo gymnastics.
+# NOTE: The systemd unit ships with PrivateTmp=true, which hides /tmp
+# from outside the service. We write under the config directory
+# instead — /etc/tangra-client/ is writable on every released unit
+# version (it's where the daemon stores live/, registration metadata,
+# and self-updates), so the hook works regardless of whether the
+# operator has the latest systemd unit installed.
 
 set -euo pipefail
 
-logdir="/var/log/tangra-client"
+logdir="/etc/tangra-client/hook-logs"
 mkdir -p "$logdir"
 out="$logdir/hook-bash.$(date +%Y%m%d-%H%M%S).log"
 
