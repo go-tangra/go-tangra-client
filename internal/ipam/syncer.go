@@ -54,6 +54,9 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 		// Sync subnets and IPs (best-effort)
 		syncSubnetsAndAddresses(ctx, clients, info, deviceID, tenantID)
 
+		// Sync the IPMI/BMC management address (best-effort)
+		syncIPMIAddress(ctx, clients, info, deviceID, tenantID)
+
 		// Sync packages (best-effort)
 		syncPackagesBestEffort(ctx, clients, deviceID)
 
@@ -86,6 +89,10 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 	} else {
 		fmt.Println("  No hardware changes detected")
 	}
+
+	// Always refresh the IPMI/BMC address regardless of hardware changes — a
+	// prior scan may have created it without a MAC since the last sync.
+	syncIPMIAddress(ctx, clients, info, state.DeviceID, tenantID)
 
 	// Always sync packages regardless of hardware changes
 	syncPackagesBestEffort(ctx, clients, state.DeviceID)

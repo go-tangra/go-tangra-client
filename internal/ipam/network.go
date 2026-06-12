@@ -58,6 +58,114 @@ func syncSubnetsAndAddresses(ctx context.Context, clients *IPAMClients, info *ma
 	}
 }
 
+const ipmiInterfaceName = "ipmi"
+
+// syncIPMIAddress creates or updates the IPMI/BMC management IP as an IPAM IP
+// address record (carrying its MAC) linked to the device. If a prior network
+// scan already discovered the address, its MAC and device link are updated.
+// Best-effort: errors are logged, not propagated.
+func syncIPMIAddress(ctx context.Context, clients *IPAMClients, info *machine.HostInfo, deviceID string, tenantID uint32) {
+	ipmi := info.IPMI
+	if ipmi.IP == "" {
+		return
+	}
+
+	networkCIDR, err := ipmiNetworkCIDR(ipmi.IP, ipmi.Subnet)
+	if err != nil {
+		fmt.Printf("  IPMI: skip address %s: %v\n", ipmi.IP, err)
+		return
+	}
+
+	subnetCache := make(map[string]string)
+	subnetID, err := ensureSubnet(ctx, clients.Subnet, tenantID, networkCIDR, subnetCache)
+	if err != nil {
+		fmt.Printf("  IPMI: failed to ensure subnet %s: %v\n", networkCIDR, err)
+		return
+	}
+
+	if err := ensureIPMIAddress(ctx, clients.IpAddress, tenantID, ipmi.IP, subnetID, deviceID, ipmi.MAC); err != nil {
+		fmt.Printf("  IPMI: failed to ensure IP %s: %v\n", ipmi.IP, err)
+	}
+}
+
+// ipmiNetworkCIDR computes the network CIDR (e.g. "10.1.112.0/24") from an IPMI
+// IP and dotted-decimal subnet mask. Falls back to /24 when the mask is missing
+// or invalid — the common case for a BMC LAN.
+func ipmiNetworkCIDR(ip, mask string) (string, error) {
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil || parsedIP.To4() == nil {
+		return "", fmt.Errorf("invalid IPMI IP %q", ip)
+	}
+	ipMask := net.CIDRMask(24, 32)
+	if m := net.ParseIP(mask); m != nil && m.To4() != nil {
+		ipMask = net.IPMask(m.To4())
+	}
+	ones, bits := ipMask.Size()
+	if ones == 0 && bits == 0 {
+		// Non-contiguous/invalid mask — fall back to /24.
+		ipMask = net.CIDRMask(24, 32)
+		ones = 24
+	}
+	network := parsedIP.Mask(ipMask)
+	return fmt.Sprintf("%s/%d", network.String(), ones), nil
+}
+
+// ensureIPMIAddress ensures the IPMI/BMC IP exists in IPAM with its MAC and is
+// linked to the device. The MAC and device link are (re)applied even when the
+// address already exists — a prior scan may have created it without a MAC. An
+// empty MAC is never written (strPtr yields nil), so existing data is kept.
+// The hostname is intentionally left untouched (the BMC has its own name).
+func ensureIPMIAddress(ctx context.Context, client ipampb.IpAddressServiceClient, tenantID uint32, address, subnetID, deviceID, mac string) error {
+	resp, err := client.FindAddress(ctx, &ipampb.FindAddressRequest{
+		TenantId: &tenantID,
+		Address:  address,
+	})
+	if err != nil {
+		return fmt.Errorf("find address %s: %w", address, err)
+	}
+
+	status := ipampb.IpAddressStatus_IP_ADDRESS_STATUS_ACTIVE
+	addrType := ipampb.IpAddressType_IP_ADDRESS_TYPE_HOST
+	ifaceName := ipmiInterfaceName
+
+	if resp.IpAddress == nil {
+		_, err := client.CreateIpAddress(ctx, &ipampb.CreateIpAddressRequest{
+			TenantId:      &tenantID,
+			Address:       &address,
+			SubnetId:      &subnetID,
+			MacAddress:    strPtr(mac),
+			DeviceId:      &deviceID,
+			InterfaceName: &ifaceName,
+			Status:        &status,
+			AddressType:   &addrType,
+		})
+		if err != nil {
+			return fmt.Errorf("create IPMI address %s: %w", address, err)
+		}
+		fmt.Printf("  IPMI: created IP %s (mac %q)\n", address, mac)
+		return nil
+	}
+
+	existing := resp.IpAddress
+	if existing.Id == nil {
+		return nil
+	}
+	_, err = client.UpdateIpAddress(ctx, &ipampb.UpdateIpAddressRequest{
+		Id: *existing.Id,
+		Data: &ipampb.IpAddress{
+			DeviceId:      &deviceID,
+			MacAddress:    strPtr(mac),
+			InterfaceName: &ifaceName,
+			Status:        &status,
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("update IPMI address %s: %w", address, err)
+	}
+	fmt.Printf("  IPMI: updated IP %s (mac %q)\n", address, mac)
+	return nil
+}
+
 // computeNetworkCIDR takes "172.30.39.167/20" and returns network CIDR "172.30.32.0/20" and host IP "172.30.39.167"
 func computeNetworkCIDR(cidr string) (networkCIDR string, hostIP string, err error) {
 	ip, ipNet, err := net.ParseCIDR(cidr)
