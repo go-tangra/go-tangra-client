@@ -48,6 +48,115 @@ ca: "/etc/tangra-client/ca.crt"
 config-dir: "/etc/tangra-client"
 ```
 
+## Deploy Hooks
+
+After a certificate is installed or renewed, the daemon can invoke a hook so you can reload services (nginx, haproxy, postfix, …), push the new material to other hosts, or run custom validation.
+
+### Configuration
+
+Hooks are configured via daemon flags (no config-file keys yet):
+
+| Flag | Description | Default |
+|---|---|---|
+| `--deploy-hook` | Path to a Bash script | unset |
+| `--deploy-script-hook` | Path to a `.lua` or `.js` script | unset |
+| `--hook-timeout` | Max execution time | `5m` |
+
+`--deploy-hook` and `--deploy-script-hook` are independent — only one is typically set. If both are set, the Bash hook runs and the script hook is ignored.
+
+```bash
+tangra-client daemon --tenant-id 1 \
+  --deploy-hook /etc/tangra-client/hooks/reload-nginx.sh \
+  --hook-timeout 2m
+```
+
+### Hook types
+
+| Type | When it fires | Status |
+|---|---|---|
+| `deploy` | After a new or renewed cert is written to disk | implemented |
+| `pre-renewal` | Before the client requests a renewal | declared, not yet wired |
+| `post-renewal` | After renewal completes | declared, not yet wired |
+
+The hook receives `LCM_IS_RENEWAL=true` when invoked for a renewal and `false` for initial issuance; use that to branch behaviour inside a single `deploy` hook rather than registering separate scripts.
+
+### Execution context
+
+The same data is passed to every hook — as environment variables to Bash, and as globals + a `LCM_CONTEXT` object to Lua/JS:
+
+| Variable | Description |
+|---|---|
+| `LCM_HOOK_TYPE` | `deploy` / `pre-renewal` / `post-renewal` |
+| `LCM_CERT_NAME` | Cert identifier (used as the on-disk directory name) |
+| `LCM_CERT_PATH` | Path to the leaf certificate PEM |
+| `LCM_KEY_PATH` | Path to the private key PEM (mode 0600) |
+| `LCM_CHAIN_PATH` | Path to the intermediate chain PEM |
+| `LCM_FULLCHAIN_PATH` | Path to `leaf + chain` (what most servers want) |
+| `LCM_COMMON_NAME` | Subject CN |
+| `LCM_DNS_NAMES` | Comma-separated SANs |
+| `LCM_IP_ADDRESSES` | Comma-separated IP SANs |
+| `LCM_SERIAL_NUMBER` | Certificate serial |
+| `LCM_EXPIRES_AT` | RFC3339 expiry timestamp |
+| `LCM_IS_RENEWAL` | `true` / `false` |
+
+Bash hooks run with `cmd.Dir` set to the script's parent directory (override with `WorkDir` in code). Lua and JavaScript scripts are executed via [go-scripts](https://github.com/tx7do/go-scripts) engine pools (lazy-initialised, 1–5 engines per type).
+
+### Helper functions (Lua / JavaScript only)
+
+| Function | Signature | Notes |
+|---|---|---|
+| `exec(command)` | `(string) -> (string, error)` | Runs via `sh -c`; returns combined stdout+stderr |
+| `readFile(path)` | `(string) -> (string, error)` | |
+| `writeFile(path, content)` | `(string, string) -> error` | Writes with mode 0644 |
+| `fileExists(path)` | `(string) -> bool` | |
+| `getEnv(key)` | `(string) -> string` | |
+| `log(msg)` | `(string) -> ()` | Prints to daemon stdout |
+
+### Examples
+
+**Bash — reload nginx after deploy or renewal**
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+logger -t tangra-client "deploying $LCM_CERT_NAME (renewal=$LCM_IS_RENEWAL)"
+
+nginx -t && systemctl reload nginx
+```
+
+**Lua — conditional post-renewal action**
+
+```lua
+log("hook fired for " .. LCM_CERT_NAME)
+
+if LCM_IS_RENEWAL then
+  local out, err = exec("systemctl reload haproxy")
+  if err ~= nil then
+    log("reload failed: " .. tostring(err))
+    error(err)
+  end
+  log(out)
+end
+```
+
+**JavaScript — push cert to a remote peer**
+
+```js
+if (LCM_CONTEXT.isRenewal) {
+  const out = exec(
+    `scp ${LCM_FULLCHAIN_PATH} ${LCM_KEY_PATH} peer:/etc/ssl/private/`
+  );
+  log(out);
+}
+```
+
+### Result handling & observability
+
+A hook is considered failed if the script exits non-zero, times out, or (for Lua/JS) raises. Failures are logged with exit code and stderr; they do **not** roll back the deployed cert — the new material is already on disk before the hook runs. On success, `last_hook_execution` is recorded in the per-cert metadata, visible via `tangra-client status`.
+
+If nginx is detected on the host and no explicit hook is configured, the daemon also runs its built-in nginx auto-deployer (see `internal/nginx/`). The deploy hook runs first; nginx auto-deploy runs second.
+
 ## Installation
 
 ```bash
