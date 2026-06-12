@@ -34,16 +34,9 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 
 	// Create new device if no state exists
 	if state == nil || state.DeviceID == "" {
-		fmt.Println("  No existing device found, creating new device...")
-		req := BuildCreateRequest(info, tenantID)
-		resp, err := clients.Device.CreateDevice(ctx, req)
+		deviceID, err := createOrAdoptDevice(ctx, clients, info, tenantID)
 		if err != nil {
-			return false, fmt.Errorf("failed to create device: %w", err)
-		}
-
-		deviceID := ""
-		if resp.Device != nil && resp.Device.Id != nil {
-			deviceID = *resp.Device.Id
+			return false, err
 		}
 
 		newState := &storage.DeviceState{
@@ -56,7 +49,7 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 			return false, fmt.Errorf("failed to save state: %w", err)
 		}
 
-		fmt.Printf("  Device created: %s\n", deviceID)
+		fmt.Printf("  Device synced: %s\n", deviceID)
 
 		// Sync subnets and IPs (best-effort)
 		syncSubnetsAndAddresses(ctx, clients, info, deviceID, tenantID)
@@ -98,6 +91,62 @@ func SyncDevice(ctx context.Context, clients *IPAMClients, stateStore *storage.S
 	syncPackagesBestEffort(ctx, clients, state.DeviceID)
 
 	return changed, nil
+}
+
+// createOrAdoptDevice creates a new device in IPAM for this host. If a device
+// with the same name already exists — because it was provisioned manually in
+// IPAM, or the local state file was lost/reset — it adopts that existing device
+// instead of failing in a reconnect loop, and pushes the current host info onto
+// it so the manual stub gets enriched.
+func createOrAdoptDevice(ctx context.Context, clients *IPAMClients, info *machine.HostInfo, tenantID uint32) (string, error) {
+	fmt.Println("  No existing device found, creating new device...")
+	resp, err := clients.Device.CreateDevice(ctx, BuildCreateRequest(info, tenantID))
+	if err == nil {
+		deviceID := resp.GetDevice().GetId()
+		fmt.Printf("  Device created: %s\n", deviceID)
+		return deviceID, nil
+	}
+	if !ipampb.IsDeviceAlreadyExists(err) {
+		return "", fmt.Errorf("failed to create device: %w", err)
+	}
+
+	// A device with this name already exists in IPAM. Adopt it by name and
+	// reconcile it with the current host info instead of looping forever.
+	fmt.Printf("  Device %q already exists in IPAM, adopting it...\n", info.Hostname)
+	deviceID, lookupErr := lookupDeviceIDByName(ctx, clients, tenantID, info.Hostname)
+	if lookupErr != nil {
+		return "", fmt.Errorf("failed to look up existing device %q: %w", info.Hostname, lookupErr)
+	}
+	if deviceID == "" {
+		return "", fmt.Errorf("device %q reported as already existing but was not found by name", info.Hostname)
+	}
+
+	if _, err := clients.Device.UpdateDevice(ctx, BuildUpdateRequest(deviceID, info)); err != nil {
+		return "", fmt.Errorf("failed to update adopted device %s: %w", deviceID, err)
+	}
+	fmt.Printf("  Device adopted: %s\n", deviceID)
+	return deviceID, nil
+}
+
+// lookupDeviceIDByName finds an existing device whose name exactly matches the
+// given name within the tenant. The IPAM query filter is a substring match, so
+// the results are filtered for an exact name match here. Returns "" if none.
+func lookupDeviceIDByName(ctx context.Context, clients *IPAMClients, tenantID uint32, name string) (string, error) {
+	noPaging := true
+	resp, err := clients.Device.ListDevices(ctx, &ipampb.ListDevicesRequest{
+		TenantId: &tenantID,
+		Query:    &name,
+		NoPaging: &noPaging,
+	})
+	if err != nil {
+		return "", fmt.Errorf("list devices: %w", err)
+	}
+	for _, d := range resp.GetItems() {
+		if d.GetName() == name && d.GetId() != "" {
+			return d.GetId(), nil
+		}
+	}
+	return "", nil
 }
 
 // RunSyncLoop runs the IPAM sync loop at the given interval
