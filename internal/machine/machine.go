@@ -40,12 +40,20 @@ type HostInfo struct {
 	IPMI        IPMIInfo
 }
 
-// IPMIInfo contains IPMI/BMC management interface details (bare-metal only)
+// IPMIInfo contains IPMI/BMC management interface details (bare-metal only).
+//
+// MACs lists the MAC of every 802.3 LAN channel the BMC exposes. Many boards
+// (e.g. Supermicro) present both a shared/LOM channel and a dedicated channel,
+// each with its OWN MAC, and only the cabled one is learned by the upstream
+// switch. Reporting all of them lets switch-port link discovery match whichever
+// MAC the switch actually sees. IP/MAC/Gateway/Subnet describe the active
+// (IP-configured) management interface, for the BMC address record and display.
 type IPMIInfo struct {
-	IP      string `json:"ip,omitempty"`
-	MAC     string `json:"mac,omitempty"`
-	Gateway string `json:"gateway,omitempty"`
-	Subnet  string `json:"subnet,omitempty"`
+	IP      string   `json:"ip,omitempty"`
+	MAC     string   `json:"mac,omitempty"`
+	MACs    []string `json:"macs,omitempty"`
+	Gateway string   `json:"gateway,omitempty"`
+	Subnet  string   `json:"subnet,omitempty"`
 }
 
 // MemoryInfo contains RAM module details from DMI tables (bare-metal only)
@@ -440,7 +448,8 @@ func getIPMIInfo() IPMIInfo {
 		return IPMIInfo{}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Enumerating channels adds a few round-trips, so allow a little more time.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	if err := client.Connect(ctx); err != nil {
@@ -448,17 +457,45 @@ func getIPMIInfo() IPMIInfo {
 	}
 	defer client.Close(ctx)
 
-	lanConfig, err := client.GetLanConfig(ctx, 1)
-	if err != nil {
-		return IPMIInfo{}
+	// Walk every IPMI channel (1..11 are the valid LAN channel numbers) and
+	// collect the MAC of each 802.3 LAN channel. Boards commonly expose channel
+	// 1 (shared/LOM) and channel 8 (dedicated) with different MACs; only the
+	// cabled one is in the switch's forwarding table, so we report all of them
+	// and let the server match whichever the switch learned. Primary IP/MAC come
+	// from the first channel that has a configured (non-zero) IP — the active
+	// management interface — preserving the previous single-channel behavior for
+	// ordinary single-LAN boards.
+	var info IPMIInfo
+	seen := make(map[string]bool)
+	for ch := uint8(1); ch <= 11; ch++ {
+		chInfo, err := client.GetChannelInfo(ctx, ch)
+		if err != nil || chInfo.ChannelMedium != ipmi.ChannelMediumLAN {
+			continue
+		}
+		cfg, err := client.GetLanConfig(ctx, ch)
+		if err != nil {
+			continue
+		}
+		mac := cfg.MAC.String()
+		if mac == "" || mac == "00:00:00:00:00:00" {
+			continue
+		}
+		if !seen[mac] {
+			seen[mac] = true
+			info.MACs = append(info.MACs, mac)
+		}
+		if hasIP := cfg.IP != nil && !cfg.IP.IsUnspecified(); hasIP && info.IP == "" {
+			info.IP = cfg.IP.String()
+			info.MAC = mac
+			info.Gateway = cfg.DefaultGatewayIP.String()
+			info.Subnet = cfg.SubnetMask.String()
+		}
 	}
-
-	return IPMIInfo{
-		IP:      lanConfig.IP.String(),
-		MAC:     lanConfig.MAC.String(),
-		Gateway: lanConfig.DefaultGatewayIP.String(),
-		Subnet:  lanConfig.SubnetMask.String(),
+	// No channel had a configured IP: keep the first MAC for display/linking.
+	if info.MAC == "" && len(info.MACs) > 0 {
+		info.MAC = info.MACs[0]
 	}
+	return info
 }
 
 // getDisks scans /sys/block/ for block devices, skipping loop/ram/dm- devices
