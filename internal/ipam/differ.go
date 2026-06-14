@@ -51,17 +51,30 @@ func HasChanges(last *storage.HostInfoSnapshot, current *storage.HostInfoSnapsho
 	}
 
 	// Compare MAC addresses (sorted)
-	lastMACs := sortedCopy(last.MACAddresses)
-	currentMACs := sortedCopy(current.MACAddresses)
-	if len(lastMACs) != len(currentMACs) {
+	if changedList(last.MACAddresses, current.MACAddresses) {
 		return true
 	}
-	for i := range lastMACs {
-		if lastMACs[i] != currentMACs[i] {
+
+	// Compare hosted-guest fingerprint so guest add/remove/MAC-change re-syncs
+	if changedList(last.HostedVMs, current.HostedVMs) {
+		return true
+	}
+
+	return false
+}
+
+// changedList reports whether two string slices differ, ignoring order.
+func changedList(a, b []string) bool {
+	as := sortedCopy(a)
+	bs := sortedCopy(b)
+	if len(as) != len(bs) {
+		return true
+	}
+	for i := range as {
+		if as[i] != bs[i] {
 			return true
 		}
 	}
-
 	return false
 }
 
@@ -71,6 +84,13 @@ func SnapshotFromHostInfo(info *machine.HostInfo) *storage.HostInfoSnapshot {
 	for _, iface := range info.Interfaces {
 		if iface.MACAddress != "" {
 			macs = append(macs, iface.MACAddress)
+		}
+	}
+
+	var hostedVMs []string
+	for _, vm := range info.HostedVMs {
+		for _, mac := range vm.MACs {
+			hostedVMs = append(hostedVMs, vm.VMID+":"+mac)
 		}
 	}
 
@@ -88,6 +108,7 @@ func SnapshotFromHostInfo(info *machine.HostInfo) *storage.HostInfoSnapshot {
 		IsVM:         info.IsVM,
 		IsContainer:  info.IsContainer,
 		IPMIIP:       info.IPMI.IP,
+		HostedVMs:    hostedVMs,
 	}
 }
 

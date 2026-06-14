@@ -31,6 +31,9 @@ type HostInfoSnapshot struct {
 	IsVM         bool     `json:"is_vm"`
 	IsContainer  bool     `json:"is_container"`
 	IPMIIP       string   `json:"ipmi_ip,omitempty"`
+	// HostedVMs fingerprints the guests this host runs (Proxmox), as sorted
+	// "vmid:mac" entries, so the daemon re-syncs when the guest list changes.
+	HostedVMs []string `json:"hosted_vms,omitempty"`
 }
 
 // StateStore manages IPAM device state persistence
