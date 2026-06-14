@@ -38,6 +38,7 @@ type HostInfo struct {
 	Board       BoardInfo
 	Memory      MemoryInfo
 	IPMI        IPMIInfo
+	HostedVMs   []HostedVM // Proxmox guests hosted on this machine (bare-metal hosts only)
 }
 
 // IPMIInfo contains IPMI/BMC management interface details (bare-metal only).
@@ -245,6 +246,7 @@ func CollectHostInfo() *HostInfo {
 		if !info.IsVM && !info.IsContainer {
 			info.Memory = getMemoryInfo()
 			info.IPMI = getIPMIInfo()
+			info.HostedVMs = getHostedVMs()
 		}
 	}
 

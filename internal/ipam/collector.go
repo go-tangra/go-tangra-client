@@ -23,6 +23,7 @@ type DeviceMetadata struct {
 	Disks       []machine.DiskInfo      `json:"disks,omitempty"`
 	Interfaces  []machine.InterfaceInfo `json:"interfaces,omitempty"`
 	IPMI        *machine.IPMIInfo      `json:"ipmi,omitempty"`
+	HostedVMs   []machine.HostedVM      `json:"hosted_vms,omitempty"`
 }
 
 // resolveDeviceType determines the IPAM device type based on host info
@@ -165,6 +166,7 @@ func buildMetadataJSON(info *machine.HostInfo) string {
 		IPMI:        ipmiInfo,
 		Disks:       info.Disks,
 		Interfaces:  info.Interfaces,
+		HostedVMs:   info.HostedVMs,
 	}
 
 	data, err := json.Marshal(meta)
