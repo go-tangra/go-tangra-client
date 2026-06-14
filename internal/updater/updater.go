@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/minio/selfupdate"
 )
@@ -51,15 +52,64 @@ type githubAsset struct {
 	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
+// transientStatus reports whether an HTTP status warrants a retry. GitHub
+// occasionally returns 5xx gateway errors (e.g. 502/503/504) or 429 rate limits
+// that succeed on a second attempt.
+func transientStatus(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
+}
+
+// getWithRetry performs a GET with a few backoff retries on network errors and
+// transient HTTP statuses, so a single flaky GitHub response doesn't abort an
+// update. The returned response (on success) has an open Body the caller closes.
+func getWithRetry(ctx context.Context, url string, headers map[string]string) (*http.Response, error) {
+	const maxAttempts = 4
+	backoff := time.Second
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("creating request: %w", err)
+		}
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+		} else if transientStatus(resp.StatusCode) {
+			lastErr = fmt.Errorf("status %d", resp.StatusCode)
+			resp.Body.Close()
+		} else {
+			return resp, nil // success, or a non-retryable status the caller handles
+		}
+
+		if attempt == maxAttempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return nil, fmt.Errorf("after %d attempts: %w", maxAttempts, lastErr)
+}
+
 // CheckForUpdate queries GitHub for the latest release and compares versions.
 func CheckForUpdate(ctx context.Context, currentVersion string) (*UpdateResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, githubAPIURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := getWithRetry(ctx, githubAPIURL, map[string]string{"Accept": "application/vnd.github+json"})
 	if err != nil {
 		return nil, fmt.Errorf("fetching latest release: %w", err)
 	}
@@ -116,12 +166,7 @@ func DownloadAndApply(ctx context.Context, result *UpdateResult) error {
 
 	// Download binary
 	fmt.Printf("Downloading %s...\n", result.BinaryName)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, result.BinaryURL, nil)
-	if err != nil {
-		return fmt.Errorf("creating download request: %w", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := getWithRetry(ctx, result.BinaryURL, nil)
 	if err != nil {
 		return fmt.Errorf("downloading binary: %w", err)
 	}
@@ -161,12 +206,7 @@ func DownloadAndApply(ctx context.Context, result *UpdateResult) error {
 }
 
 func downloadChecksum(ctx context.Context, checksumURL, targetFilename string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, checksumURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := getWithRetry(ctx, checksumURL, nil)
 	if err != nil {
 		return nil, err
 	}
