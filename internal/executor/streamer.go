@@ -95,6 +95,9 @@ func handleExecutionCommand(
 	if command.GetCommandType() == executorV1.CommandType_COMMAND_TYPE_CLIENT_UPDATE {
 		return handleUpdateCommand(ctx, grpcClient, command, currentVersion)
 	}
+	if command.GetCommandType() == executorV1.CommandType_COMMAND_TYPE_ACTION_EXECUTION {
+		return handleActionCommand(ctx, grpcClient, command, timeout)
+	}
 
 	// Default: script execution
 	commandID := command.GetCommandId()

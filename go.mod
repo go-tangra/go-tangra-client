@@ -4,6 +4,7 @@ go 1.25.4
 
 require (
 	github.com/bougou/go-ipmi v0.8.1
+	github.com/go-tangra/go-tangra-actions v0.1.0
 	github.com/go-tangra/go-tangra-executor v1.5.1-0.20260226082219-fd851acac29e
 	github.com/go-tangra/go-tangra-ipam v0.0.0
 	github.com/go-tangra/go-tangra-lcm v0.0.0
@@ -19,16 +20,23 @@ require (
 require (
 	aead.dev/minisign v0.2.0 // indirect
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260209202127-80ab13bee0bf.1 // indirect
+	cel.dev/expr v0.25.1 // indirect
+	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/clipperhouse/displaywidth v0.6.2 // indirect
 	github.com/clipperhouse/stringish v0.1.1 // indirect
 	github.com/clipperhouse/uax29/v2 v2.3.0 // indirect
+	github.com/dlclark/regexp2/v2 v2.2.1 // indirect
+	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-kratos/aegis v0.2.0 // indirect
 	github.com/go-kratos/kratos/v2 v2.9.2 // indirect
 	github.com/go-playground/form/v4 v4.3.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/google/cel-go v0.28.1 // indirect
 	github.com/google/gnostic v0.7.1 // indirect
 	github.com/google/gnostic-models v0.7.1 // indirect
+	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/mux v1.8.1 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
@@ -68,6 +76,7 @@ require (
 )
 
 replace (
+	github.com/go-tangra/go-tangra-actions => ../go-tangra-actions
 	github.com/go-tangra/go-tangra-executor => ../go-tangra-executor
 	github.com/go-tangra/go-tangra-ipam => ../go-tangra-ipam
 	github.com/go-tangra/go-tangra-lcm => ../go-tangra-lcm
