@@ -47,6 +47,12 @@ jobs:
           repository: go-tangra/go-tangra-executor
           path: go-tangra-executor
 
+      - name: Checkout go-tangra-actions
+        uses: actions/checkout@v4
+        with:
+          repository: go-tangra/go-tangra-actions
+          path: go-tangra-actions
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
