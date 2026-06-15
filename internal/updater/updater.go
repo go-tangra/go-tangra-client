@@ -31,6 +31,7 @@ type UpdateResult struct {
 	ChecksumURL    string
 	BinaryName     string
 	ReleaseURL     string
+	ExpectedSHA256 string // hex-encoded; set by the executor source
 }
 
 // Environment describes the runtime environment.
@@ -187,7 +188,12 @@ func DownloadAndApply(ctx context.Context, result *UpdateResult) error {
 		}
 	}
 
-	// Apply update with checksum verification
+	return applyBinary(reader, expectedChecksum, result.LatestVersion)
+}
+
+// applyBinary applies an update from reader, verifying the SHA-256 checksum
+// when expectedChecksum is non-nil. Shared by the GitHub and executor sources.
+func applyBinary(reader io.Reader, expectedChecksum []byte, version string) error {
 	opts := selfupdate.Options{}
 	if expectedChecksum != nil {
 		opts.Hash = crypto.SHA256
@@ -201,7 +207,7 @@ func DownloadAndApply(ctx context.Context, result *UpdateResult) error {
 		return fmt.Errorf("update failed (rolled back): %w", err)
 	}
 
-	fmt.Printf("\nSuccessfully updated to v%s\n", result.LatestVersion)
+	fmt.Printf("\nSuccessfully updated to v%s\n", version)
 	return nil
 }
 

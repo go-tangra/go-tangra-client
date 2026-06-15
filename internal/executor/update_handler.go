@@ -46,9 +46,10 @@ func handleUpdateCommand(
 		return nil
 	}
 
-	// Check for update
+	// Check for update — prefer the executor (avoids GitHub rate limits across
+	// the fleet), falling back to GitHub when the executor has nothing cached.
 	fmt.Println("  Checking for updates...")
-	result, err := updater.CheckForUpdate(ctx, currentVersion)
+	result, viaExecutor, err := checkForUpdate(ctx, grpcClient, currentVersion)
 	if err != nil {
 		msg := fmt.Sprintf("update check failed: %v", err)
 		fmt.Printf("  %s\n", msg)
@@ -64,8 +65,12 @@ func handleUpdateCommand(
 	}
 
 	// Download and apply
-	fmt.Printf("  Updating v%s -> v%s...\n", result.CurrentVersion, result.LatestVersion)
-	if err := updater.DownloadAndApply(ctx, result); err != nil {
+	source := "GitHub"
+	if viaExecutor {
+		source = "executor"
+	}
+	fmt.Printf("  Updating v%s -> v%s (via %s)...\n", result.CurrentVersion, result.LatestVersion, source)
+	if err := downloadAndApply(ctx, grpcClient, result, viaExecutor); err != nil {
 		msg := fmt.Sprintf("update failed: %v", err)
 		fmt.Printf("  %s\n", msg)
 		ackUpdate(ctx, grpcClient, commandID, false, msg)
@@ -78,6 +83,43 @@ func handleUpdateCommand(
 	ackUpdate(ctx, grpcClient, commandID, true, msg)
 
 	return ErrRestartRequested
+}
+
+// checkForUpdate tries the executor first and falls back to GitHub. The bool
+// return reports whether the result came from the executor (and therefore must
+// be downloaded from it too).
+func checkForUpdate(
+	ctx context.Context,
+	grpcClient executorV1.ExecutorClientServiceClient,
+	currentVersion string,
+) (*updater.UpdateResult, bool, error) {
+	result, err := updater.CheckViaExecutor(ctx, grpcClient, currentVersion)
+	if err == nil {
+		return result, true, nil
+	}
+	if !errors.Is(err, updater.ErrReleaseNotCached) {
+		fmt.Printf("  Executor update source unavailable (%v), falling back to GitHub\n", err)
+	}
+
+	result, err = updater.CheckForUpdate(ctx, currentVersion)
+	if err != nil {
+		return nil, false, err
+	}
+	return result, false, nil
+}
+
+// downloadAndApply downloads from the executor when viaExecutor is set,
+// otherwise from GitHub.
+func downloadAndApply(
+	ctx context.Context,
+	grpcClient executorV1.ExecutorClientServiceClient,
+	result *updater.UpdateResult,
+	viaExecutor bool,
+) error {
+	if viaExecutor {
+		return updater.DownloadAndApplyViaExecutor(ctx, grpcClient, result)
+	}
+	return updater.DownloadAndApply(ctx, result)
 }
 
 // ackUpdate sends the update result via AckCommand. There is no execution log
