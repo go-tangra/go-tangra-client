@@ -49,11 +49,14 @@ func handleActionCommand(
 		return nil
 	}
 
-	// Restricted mode (ACTIONS_RESTRICTED, default on): only the native built-in
-	// structured actions may run — no bash/`run:` steps, no scripted (JS/Lua)
-	// actions, no external/composite actions. Build a registry of just the
-	// allowlisted actions and refuse anything else up front. When unrestricted,
-	// use the full builtin set plus the executor resolver and JS runtime.
+	// Restricted mode (ACTIONS_RESTRICTED, default on): permit only predefined,
+	// code-free actions — native builtins and composite actions that recursively
+	// use only those. No `run:` shell steps and no scripted (JS/Lua) actions at
+	// any depth. The resolver is enabled so composites resolve and run, AND so
+	// validation can inspect their internals; the script runtime stays nil and
+	// the registry omits `run`, so the engine can never execute code even if a
+	// check were bypassed. When unrestricted, use the full builtin set plus the
+	// JS runtime.
 	reg := action.DefaultRegistry()
 	var (
 		resolver engine.Resolver
@@ -61,7 +64,8 @@ func handleActionCommand(
 	)
 	if policy.Restricted {
 		reg = newRestrictedRegistry()
-		if vErr := validateRestricted(wf, reg); vErr != nil {
+		resolver = newExecutorResolver(grpcClient)
+		if vErr := validateRestricted(ctx, wf, reg, resolver); vErr != nil {
 			msg := fmt.Sprintf("restricted mode (ACTIONS_RESTRICTED): %v", vErr)
 			fmt.Printf("  %s\n", msg)
 			reportWorkflowResult(ctx, grpcClient, execID, 1, msg+"\n", 0)

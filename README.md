@@ -1,6 +1,6 @@
 # go-tangra-client
 
-Linux agent that unifies two infrastructure functions: **IPAM device sync** and **LCM certificate management**. Runs as a systemd daemon or one-shot CLI tool.
+Linux agent that unifies three infrastructure functions: **IPAM device sync**, **LCM certificate management**, and **Executor-driven action/workflow execution**. Runs as a systemd daemon or one-shot CLI tool.
 
 ## Features
 
@@ -9,8 +9,10 @@ Linux agent that unifies two infrastructure functions: **IPAM device sync** and 
 - **Auto-create Subnets & IPs** — Reports host CIDRs and ensures subnets/IP records exist in IPAM
 - **Certificate Streaming** — Streams real-time certificate updates from LCM with automatic renewal
 - **Deploy Hooks** — Executes Bash, Lua, or JavaScript hooks after certificate updates
+- **Action / Workflow Execution** — Streams commands from the Executor and runs [go-tangra-actions](https://github.com/go-tangra/go-tangra-actions) workflows on the host, streaming output back live (GitHub-Actions style). Opt-in and policy-gated (see [Action execution](#action-execution))
+- **Self-Update** — Updates its own binary from the Executor's release mirror (with GitHub fallback)
 - **Auto-Registration** — Registers with LCM server using shared secret when no credentials exist
-- **Systemd Integration** — Runs as a hardened daemon with security restrictions
+- **Systemd Integration** — Runs as a long-lived `Restart=always` daemon
 
 ## Commands
 
@@ -24,7 +26,7 @@ tangra-client sync --tenant-id 1
 # Dry run — show what would be synced
 tangra-client sync --tenant-id 1 --dry-run
 
-# Start daemon (IPAM + LCM continuous sync)
+# Start daemon (IPAM + LCM + Executor goroutines)
 tangra-client daemon --tenant-id 1
 
 # Daemon with auto-registration
@@ -32,7 +34,16 @@ tangra-client daemon --tenant-id 1 --secret my-shared-secret
 
 # Show client status and diagnostics
 tangra-client status
+
+# Fetch and execute a script from the executor service
+tangra-client exec <script_id>
+
+# Update the binary (--check only reports availability)
+tangra-client update
+tangra-client update --check
 ```
+
+The daemon runs the IPAM, LCM, and Executor functions as concurrent goroutines (errgroup) and reconnects each independently. Pass `--disable-executor` to skip the Executor streaming goroutine.
 
 ## Configuration
 
@@ -41,11 +52,39 @@ Config file at `/etc/tangra-client/config.yaml`:
 ```yaml
 server: "lcm.example.com:9100"
 ipam-server: "ipam.example.com:9400"
+executor-server: "executor.example.com:9800"
 tenant-id: 1
 cert: "/etc/tangra-client/client.crt"
 key: "/etc/tangra-client/client.key"
 ca: "/etc/tangra-client/ca.crt"
 config-dir: "/etc/tangra-client"
+```
+
+## Action execution
+
+The daemon can run [go-tangra-actions](https://github.com/go-tangra/go-tangra-actions) workflows pushed by the Executor and stream their output back live. This is **opt-in per host** and controlled by two environment variables:
+
+| Variable | Default | Effect |
+|---|---|---|
+| `ACTIONS_ENABLED` | `false` | Master switch. The host runs **no** pushed workflow unless this is truthy (`1`/`true`/`yes`/`on`). The client also reports this to the Executor, which only offers eligible hosts in its run picker. |
+| `ACTIONS_RESTRICTED` | `true` | When restricted (default), only **predefined, code-free actions** may run: the native built-in structured actions (`package`, `file`, `file_line`, `service`, `service_status`, `hostname`, `timezone`) and composite actions that — recursively — use only those. **No `run:` shell steps and no scripted (JS/Lua) actions at any depth**, including inside a composite action. Set falsey (`0`/`false`/`no`/`off`) to allow shell and scripts. |
+
+Both are enforced client-side (defense in depth) regardless of what the Executor sends. In restricted mode the client resolves each referenced composite action and inspects its steps; a workflow that would run any shell or script — directly or via a composite — is refused up front with the offending step named (an action that can't be resolved for inspection is rejected too, fail-closed).
+
+For example, a composite action that gates on the native `service_status` action is allowed, but the same action implemented with `run: systemctl is-enabled …` is rejected — as is anything like a `system-update` action that runs `apt` internally. Those need `ACTIONS_RESTRICTED=false`.
+
+Enable on a host via a systemd drop-in:
+
+```ini
+# /etc/systemd/system/tangra-client.service.d/actions.conf
+[Service]
+Environment=ACTIONS_ENABLED=true
+# Optional — lift the native-only guard to allow shell/scripts:
+# Environment=ACTIONS_RESTRICTED=false
+```
+
+```bash
+systemctl daemon-reload && systemctl restart tangra-client
 ```
 
 ## Deploy Hooks
@@ -187,15 +226,23 @@ GitHub Actions release workflow triggers on `v*` tags. Builds static binaries an
 
 ```
 cmd/
-├── daemon/     # Continuous sync (IPAM + LCM goroutines with errgroup)
+├── daemon/     # Continuous sync (IPAM + LCM + Executor goroutines with errgroup)
 ├── sync/       # One-shot IPAM sync
 ├── register/   # Client registration
+├── cert/       # Certificate utilities
+├── exec/       # One-shot script execution from the executor
+├── update/     # Self-update (executor mirror + GitHub fallback)
+├── config/     # Config inspection
+├── version/    # Version info
 └── status/     # Diagnostics
 internal/
 ├── machine/    # System info collection (CPU, memory, disks, NICs, DMI, VM detection)
 ├── ipam/       # Device sync, subnet/IP auto-creation, change detection
 ├── lcm/        # Certificate streaming and syncing
+├── executor/   # Command streaming, script/action execution, live output streaming
+├── updater/    # Self-update logic
 ├── storage/    # Persistent state (certbot-like cert store + device state)
+├── nginx/      # Built-in nginx cert auto-deployer
 ├── hook/       # Deploy hook execution (Bash/Lua/JS)
 └── registration/ # Shared registration logic
 ```
@@ -204,5 +251,11 @@ internal/
 
 - All server communication uses mTLS
 - Private keys stored with mode 0600
-- Systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`
 - Hook execution with configurable timeout (default 5 minutes)
+- Action execution is opt-in (`ACTIONS_ENABLED`) and native-actions-only by default (`ACTIONS_RESTRICTED`); see [Action execution](#action-execution)
+
+> **Note:** the systemd unit deliberately runs **without** filesystem sandboxing
+> (`ProtectSystem`/`ProtectHome`/`NoNewPrivileges`/…). The agent is a root
+> host-administration daemon — it manages packages, files and services and
+> self-updates its binary, so sandboxing makes the host unmanageable (e.g.
+> `apt upgrade` fails with "read-only file system"). See `deploy/tangra-client.service`.

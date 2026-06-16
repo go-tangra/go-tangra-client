@@ -1,9 +1,11 @@
 package executor
 
 import (
+	"context"
 	"strings"
 	"testing"
 
+	"github.com/go-tangra/go-tangra-actions/engine"
 	"github.com/go-tangra/go-tangra-actions/workflow"
 )
 
@@ -20,8 +22,70 @@ func TestRestrictedRegistry_ExcludesShellAndScripts(t *testing.T) {
 	}
 }
 
+// mustResolved parses an action manifest into a ResolvedAction for a test resolver.
+func mustResolved(t *testing.T, manifest string) *engine.ResolvedAction {
+	t.Helper()
+	def, err := workflow.ParseAction([]byte(manifest))
+	if err != nil {
+		t.Fatalf("parse action: %v", err)
+	}
+	return &engine.ResolvedAction{Def: def}
+}
+
 func TestValidateRestricted(t *testing.T) {
 	reg := newRestrictedRegistry()
+
+	// A composite that uses only native actions (the allowed php-fpm example).
+	nativeComposite := `
+name: disable-old-php-fpm
+description: x
+runs:
+  using: composite
+  steps:
+    - id: check_new
+      uses: service_status
+      with: { name: php8.4-fpm }
+    - id: disable_old
+      uses: service
+      with: { name: php8.3-fpm, state: stopped, enabled: "false" }
+`
+	// A composite that runs bash internally (the forbidden php-fpm example / system-update shape).
+	bashComposite := `
+name: disable-old-php-fpm-bash
+description: x
+runs:
+  using: composite
+  steps:
+    - id: check_new
+      run: systemctl is-enabled php8.4-fpm.service
+      shell: bash
+    - id: disable_old
+      uses: service
+      with: { name: php8.3-fpm, state: stopped, enabled: "false" }
+`
+	scriptedAction := `
+name: install-fzf
+description: x
+runs:
+  using: javascript
+  main: index.js
+`
+	// A composite that references another composite which runs bash (nested).
+	nestedBad := `
+name: outer
+description: x
+runs:
+  using: composite
+  steps:
+    - id: inner
+      uses: disable-old-php-fpm-bash
+`
+	resolver := engine.MapResolver{
+		"disable-old-php-fpm":      mustResolved(t, nativeComposite),
+		"disable-old-php-fpm-bash": mustResolved(t, bashComposite),
+		"install-fzf":              mustResolved(t, scriptedAction),
+		"outer":                    mustResolved(t, nestedBad),
+	}
 
 	cases := []struct {
 		name    string
@@ -42,7 +106,17 @@ jobs:
 `,
 		},
 		{
-			name: "run step rejected",
+			name: "composite of native actions passes",
+			yaml: `
+name: ok2
+jobs:
+  main:
+    steps:
+      - uses: disable-old-php-fpm
+`,
+		},
+		{
+			name: "top-level run step rejected",
 			yaml: `
 name: shelly
 jobs:
@@ -54,32 +128,48 @@ jobs:
 			wantErr: "shell",
 		},
 		{
-			name: "non-native uses rejected",
+			name: "composite with internal bash rejected",
+			yaml: `
+name: viacomposite
+jobs:
+  main:
+    steps:
+      - uses: disable-old-php-fpm-bash
+`,
+			wantErr: "shell",
+		},
+		{
+			name: "scripted action rejected",
 			yaml: `
 name: scripted
 jobs:
   main:
     steps:
-      - id: fetch
-        uses: my-js-action
-        with: { url: http://x }
+      - uses: install-fzf
 `,
-			wantErr: "not permitted",
+			wantErr: "script",
 		},
 		{
-			name: "rejected even when a later job is clean",
+			name: "nested composite with bash rejected",
 			yaml: `
-name: mixed
+name: nested
 jobs:
-  a:
+  main:
     steps:
-      - uses: service
-        with: { name: nginx, state: started }
-  b:
-    steps:
-      - run: rm -rf /tmp/x
+      - uses: outer
 `,
 			wantErr: "shell",
+		},
+		{
+			name: "unresolvable action rejected (fail closed)",
+			yaml: `
+name: unknown
+jobs:
+  main:
+    steps:
+      - uses: does-not-exist
+`,
+			wantErr: "could not be resolved",
 		},
 	}
 
@@ -89,7 +179,7 @@ jobs:
 			if err != nil {
 				t.Fatalf("parse: %v", err)
 			}
-			gotErr := validateRestricted(wf, reg)
+			gotErr := validateRestricted(context.Background(), wf, reg, resolver)
 			if tc.wantErr == "" {
 				if gotErr != nil {
 					t.Fatalf("expected pass, got %v", gotErr)
