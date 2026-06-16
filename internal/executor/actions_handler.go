@@ -47,8 +47,11 @@ func handleActionCommand(
 	}
 
 	var sendMu sync.Mutex
-	sink := func(ev engine.OutputEvent) {
-		os.Stdout.Write(ev.Data) // echo locally
+	emit := func(streamName string, b []byte) {
+		if len(b) == 0 {
+			return
+		}
+		os.Stdout.Write(b) // echo locally
 		if stream == nil {
 			return
 		}
@@ -56,11 +59,22 @@ func handleActionCommand(
 		defer sendMu.Unlock()
 		_ = stream.Send(&executorV1.ExecutionOutputChunk{
 			ExecutionId: execID,
-			Stream:      ev.Stream.String(),
-			Data:        ev.Data,
-			Job:         ev.Job,
-			Step:        ev.Step,
+			Stream:      streamName,
+			Data:        b,
 		})
+	}
+
+	// Render the engine's events GitHub-Actions style: a header per step, the
+	// step's output, then a result marker (✓/✗/⊘).
+	sink := func(ev engine.OutputEvent) {
+		switch ev.Kind {
+		case engine.KindStepStarted:
+			emit("stdout", []byte("\n▸ "+stepName(ev)+"\n"))
+		case engine.KindStepFinished:
+			emit("stdout", []byte(stepResultLine(ev)))
+		default:
+			emit(ev.Stream.String(), ev.Data)
+		}
 	}
 
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -77,27 +91,50 @@ func handleActionCommand(
 	result, runErr := runner.Run(runCtx, wf, command.GetInputs())
 	duration := time.Since(start).Milliseconds()
 
+	exitCode := int32(0)
+	switch {
+	case runErr != nil:
+		exitCode = 1
+		emit("stderr", []byte(fmt.Sprintf("\n✗ workflow failed: %v (%dms)\n", runErr, duration)))
+	case result == nil || !result.Success:
+		exitCode = 1
+		emit("stderr", []byte(fmt.Sprintf("\n✗ workflow failed (%dms)\n", duration)))
+	default:
+		emit("stdout", []byte(fmt.Sprintf("\n✓ workflow succeeded (%dms)\n", duration)))
+	}
+
 	if stream != nil {
 		if _, cErr := stream.CloseAndRecv(); cErr != nil {
 			fmt.Printf("  Warning: closing output stream: %v\n", cErr)
 		}
 	}
 
-	exitCode := int32(0)
-	switch {
-	case runErr != nil:
-		exitCode = 1
-		fmt.Printf("  workflow error: %v (%dms)\n", runErr, duration)
-	case result == nil || !result.Success:
-		exitCode = 1
-		fmt.Printf("  workflow failed (%dms)\n", duration)
-	default:
-		fmt.Printf("  workflow succeeded (%dms)\n", duration)
-	}
-
 	// Output already streamed and persisted; send empty output to preserve it.
 	reportWorkflowResult(ctx, grpcClient, execID, exitCode, "", duration)
 	return nil
+}
+
+// stepName is the display label for a step event (name, else id, else "step").
+func stepName(ev engine.OutputEvent) string {
+	if ev.Name != "" {
+		return ev.Name
+	}
+	if ev.Step != "" {
+		return ev.Step
+	}
+	return "step"
+}
+
+// stepResultLine renders a step's outcome marker, GitHub-Actions style.
+func stepResultLine(ev engine.OutputEvent) string {
+	switch ev.Outcome {
+	case "success":
+		return "✓ " + stepName(ev) + "\n"
+	case "skipped":
+		return "⊘ " + stepName(ev) + " (skipped)\n"
+	default:
+		return "✗ " + stepName(ev) + " (" + ev.Outcome + ")\n"
+	}
 }
 
 func reportWorkflowResult(
