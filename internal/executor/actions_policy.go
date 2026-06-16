@@ -40,6 +40,7 @@ func newRestrictedRegistry() *action.Registry {
 	r.Register(&action.FileLine{})
 	r.Register(&action.Service{})
 	r.Register(&action.ServiceStatus{})
+	r.Register(&action.Log{})
 	r.Register(&action.Hostname{})
 	r.Register(&action.Timezone{})
 	return r

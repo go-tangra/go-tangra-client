@@ -67,11 +67,21 @@ The daemon can run [go-tangra-actions](https://github.com/go-tangra/go-tangra-ac
 | Variable | Default | Effect |
 |---|---|---|
 | `ACTIONS_ENABLED` | `false` | Master switch. The host runs **no** pushed workflow unless this is truthy (`1`/`true`/`yes`/`on`). The client also reports this to the Executor, which only offers eligible hosts in its run picker. |
-| `ACTIONS_RESTRICTED` | `true` | When restricted (default), only **predefined, code-free actions** may run: the native built-in structured actions (`package`, `file`, `file_line`, `service`, `service_status`, `hostname`, `timezone`) and composite actions that — recursively — use only those. **No `run:` shell steps and no scripted (JS/Lua) actions at any depth**, including inside a composite action. Set falsey (`0`/`false`/`no`/`off`) to allow shell and scripts. |
+| `ACTIONS_RESTRICTED` | `true` | When restricted (default), only **predefined, code-free actions** may run: the native built-in structured actions (`package`, `file`, `file_line`, `service`, `service_status`, `log`, `hostname`, `timezone`) and composite actions that — recursively — use only those. **No `run:` shell steps and no scripted (JS/Lua) actions at any depth**, including inside a composite action. Set falsey (`0`/`false`/`no`/`off`) to allow shell and scripts. |
 
 Both are enforced client-side (defense in depth) regardless of what the Executor sends. In restricted mode the client resolves each referenced composite action and inspects its steps; a workflow that would run any shell or script — directly or via a composite — is refused up front with the offending step named (an action that can't be resolved for inspection is rejected too, fail-closed).
 
 For example, a composite action that gates on the native `service_status` action is allowed, but the same action implemented with `run: systemctl is-enabled …` is rejected — as is anything like a `system-update` action that runs `apt` internally. Those need `ACTIONS_RESTRICTED=false`.
+
+To print a message to the live log from a restricted workflow (the no-shell replacement for `run: echo …`), use the native `log` action:
+
+```yaml
+- name: Report
+  if: always()
+  uses: log
+  with:
+    message: "system upgraded via ${{ steps.update.outputs.manager }} (${{ steps.update.outputs.upgrade }})"
+```
 
 Enable on a host via a systemd drop-in:
 

@@ -15,7 +15,7 @@ func TestRestrictedRegistry_ExcludesShellAndScripts(t *testing.T) {
 	if _, ok := reg.Get("run"); ok {
 		t.Error("restricted registry must NOT include the shell `run` action")
 	}
-	for _, name := range []string{"package", "file", "file_line", "service", "service_status", "hostname", "timezone"} {
+	for _, name := range []string{"package", "file", "file_line", "service", "service_status", "log", "hostname", "timezone"} {
 		if _, ok := reg.Get(name); !ok {
 			t.Errorf("restricted registry missing native action %q", name)
 		}
@@ -103,6 +103,19 @@ jobs:
         with: { name: nginx }
       - uses: package
         with: { name: htop, state: present }
+`,
+		},
+		{
+			name: "log action passes (code-free echo)",
+			yaml: `
+name: logok
+jobs:
+  main:
+    steps:
+      - name: Report
+        if: always()
+        uses: log
+        with: { message: "done via ${{ steps.x.outputs.manager }}" }
 `,
 		},
 		{
