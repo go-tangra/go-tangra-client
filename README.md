@@ -62,11 +62,11 @@ config-dir: "/etc/tangra-client"
 
 ## Action execution
 
-The daemon can run [go-tangra-actions](https://github.com/go-tangra/go-tangra-actions) workflows pushed by the Executor and stream their output back live. This is **opt-in per host** and controlled by two environment variables:
+The daemon can run [go-tangra-actions](https://github.com/go-tangra/go-tangra-actions) workflows pushed by the Executor and stream their output back live. It is controlled per host by two environment variables — enabled by default, but limited to predefined code-free actions unless you opt out of restricted mode:
 
 | Variable | Default | Effect |
 |---|---|---|
-| `ACTIONS_ENABLED` | `false` | Master switch. The host runs **no** pushed workflow unless this is truthy (`1`/`true`/`yes`/`on`). The client also reports this to the Executor, which only offers eligible hosts in its run picker. |
+| `ACTIONS_ENABLED` | `true` | Master switch. Enabled by default; set falsey (`0`/`false`/`no`/`off`) to make the host run **no** pushed workflow. The client also reports this to the Executor, which only offers eligible hosts in its run picker. |
 | `ACTIONS_RESTRICTED` | `true` | When restricted (default), only **predefined, code-free actions** may run: the native built-in structured actions (`package`, `file`, `file_line`, `service`, `service_status`, `log`, `hostname`, `timezone`) and composite actions that — recursively — use only those. **No `run:` shell steps and no scripted (JS/Lua) actions at any depth**, including inside a composite action. Set falsey (`0`/`false`/`no`/`off`) to allow shell and scripts. |
 
 Both are enforced client-side (defense in depth) regardless of what the Executor sends. In restricted mode the client resolves each referenced composite action and inspects its steps; a workflow that would run any shell or script — directly or via a composite — is refused up front with the offending step named (an action that can't be resolved for inspection is rejected too, fail-closed).
@@ -83,13 +83,14 @@ To print a message to the live log from a restricted workflow (the no-shell repl
     message: "system upgraded via ${{ steps.update.outputs.manager }} (${{ steps.update.outputs.upgrade }})"
 ```
 
-Enable on a host via a systemd drop-in:
+Override the defaults on a host via a systemd drop-in:
 
 ```ini
 # /etc/systemd/system/tangra-client.service.d/actions.conf
 [Service]
-Environment=ACTIONS_ENABLED=true
-# Optional — lift the native-only guard to allow shell/scripts:
+# Actions are enabled by default; uncomment to disable on this host:
+# Environment=ACTIONS_ENABLED=false
+# Lift the native-only guard to allow shell/scripts:
 # Environment=ACTIONS_RESTRICTED=false
 ```
 

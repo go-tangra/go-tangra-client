@@ -332,10 +332,10 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 	// Executor goroutine
 	if !disableExecutor {
-		// Action execution is opt-in per host: disabled unless ACTIONS_ENABLED is
-		// truthy. Reported to the executor so it only pushes workflows to eligible
-		// hosts. ACTIONS_RESTRICTED (default on) further limits an enabled host to
-		// the native built-in actions only — no shell/`run:` or scripted actions.
+		// Action execution is enabled per host by default; ACTIONS_ENABLED=false
+		// opts a host out. Reported to the executor so it only pushes workflows to
+		// eligible hosts. ACTIONS_RESTRICTED (default on) further limits an enabled
+		// host to the native built-in actions only — no shell/`run:` or scripted.
 		actionsPolicy := executorint.ActionsPolicy{
 			Enabled:    actionsEnabledFromEnv(),
 			Restricted: actionsRestrictedFromEnv(),
@@ -345,7 +345,9 @@ func runDaemon(c *cobra.Command, args []string) error {
 			if !actionsPolicy.Restricted {
 				mode = "UNRESTRICTED (shell + scripts allowed)"
 			}
-			fmt.Printf("Executor: action execution ENABLED on this host (ACTIONS_ENABLED), mode: %s\n", mode)
+			fmt.Printf("Executor: action execution ENABLED on this host, mode: %s\n", mode)
+		} else {
+			fmt.Println("Executor: action execution DISABLED on this host (ACTIONS_ENABLED=false)")
 		}
 		g.Go(func() error {
 			err := runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
@@ -481,14 +483,15 @@ func fileExists(path string) bool {
 }
 
 // actionsEnabledFromEnv reports whether this host may run go-tangra-actions
-// workflows. Disabled by default; only an explicit truthy ACTIONS_ENABLED opts
-// the host in.
+// workflows. Enabled by default; only an explicit falsey ACTIONS_ENABLED opts
+// the host out. (Execution is still constrained by ACTIONS_RESTRICTED, which
+// defaults to native-actions-only.)
 func actionsEnabledFromEnv() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("ACTIONS_ENABLED"))) {
-	case "1", "true", "yes", "on":
-		return true
-	default:
+	case "0", "false", "no", "off":
 		return false
+	default:
+		return true
 	}
 }
 
