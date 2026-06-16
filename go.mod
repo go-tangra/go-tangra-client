@@ -4,7 +4,7 @@ go 1.25.4
 
 require (
 	github.com/bougou/go-ipmi v0.8.1
-	github.com/go-tangra/go-tangra-actions v0.6.0
+	github.com/go-tangra/go-tangra-actions v0.6.1
 	github.com/go-tangra/go-tangra-executor v1.5.1-0.20260226082219-fd851acac29e
 	github.com/go-tangra/go-tangra-ipam v0.0.0
 	github.com/go-tangra/go-tangra-lcm v0.0.0
