@@ -334,10 +334,18 @@ func runDaemon(c *cobra.Command, args []string) error {
 	if !disableExecutor {
 		// Action execution is opt-in per host: disabled unless ACTIONS_ENABLED is
 		// truthy. Reported to the executor so it only pushes workflows to eligible
-		// hosts.
-		actionsEnabled := actionsEnabledFromEnv()
-		if actionsEnabled {
-			fmt.Println("Executor: action execution ENABLED on this host (ACTIONS_ENABLED)")
+		// hosts. ACTIONS_RESTRICTED (default on) further limits an enabled host to
+		// the native built-in actions only — no shell/`run:` or scripted actions.
+		actionsPolicy := executorint.ActionsPolicy{
+			Enabled:    actionsEnabledFromEnv(),
+			Restricted: actionsRestrictedFromEnv(),
+		}
+		if actionsPolicy.Enabled {
+			mode := "RESTRICTED (native actions only)"
+			if !actionsPolicy.Restricted {
+				mode = "UNRESTRICTED (shell + scripts allowed)"
+			}
+			fmt.Printf("Executor: action execution ENABLED on this host (ACTIONS_ENABLED), mode: %s\n", mode)
 		}
 		g.Go(func() error {
 			err := runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
@@ -355,7 +363,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 					return fmt.Errorf("failed to load hash store: %w", err)
 				}
 
-				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval, actionsEnabled)
+				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval, actionsPolicy)
 			})
 			// A self-update applied the new binary: restart NOW rather than
 			// returning up to g.Wait(), which would block until the LCM/IPAM
@@ -481,6 +489,19 @@ func actionsEnabledFromEnv() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// actionsRestrictedFromEnv reports whether workflow execution is limited to the
+// native built-in actions only (no shell/`run:` steps, no scripted or external
+// actions). Restricted by default (safe); only an explicit falsey
+// ACTIONS_RESTRICTED lifts the guard to allow shell and scripts.
+func actionsRestrictedFromEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ACTIONS_RESTRICTED"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
 	}
 }
 

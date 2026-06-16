@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-tangra/go-tangra-actions/action"
 	"github.com/go-tangra/go-tangra-actions/engine"
 	"github.com/go-tangra/go-tangra-actions/jsruntime"
 	"github.com/go-tangra/go-tangra-actions/system"
@@ -24,7 +25,7 @@ func handleActionCommand(
 	grpcClient executorV1.ExecutorClientServiceClient,
 	command *executorV1.ExecutionCommand,
 	timeout time.Duration,
-	actionsEnabled bool,
+	policy ActionsPolicy,
 ) error {
 	execID := command.GetExecutionId()
 	name := command.GetScriptName()
@@ -33,7 +34,7 @@ func handleActionCommand(
 
 	// Defense-in-depth: even though the executor gates eligibility, refuse to run
 	// workflows unless this host opted in via ACTIONS_ENABLED.
-	if !actionsEnabled {
+	if !policy.Enabled {
 		msg := "action execution is not enabled on this host (set ACTIONS_ENABLED)"
 		fmt.Printf("  %s\n", msg)
 		reportWorkflowResult(ctx, grpcClient, execID, 1, msg+"\n", 0)
@@ -46,6 +47,29 @@ func handleActionCommand(
 		fmt.Printf("  %s\n", msg)
 		reportWorkflowResult(ctx, grpcClient, execID, 1, msg, 0)
 		return nil
+	}
+
+	// Restricted mode (ACTIONS_RESTRICTED, default on): only the native built-in
+	// structured actions may run — no bash/`run:` steps, no scripted (JS/Lua)
+	// actions, no external/composite actions. Build a registry of just the
+	// allowlisted actions and refuse anything else up front. When unrestricted,
+	// use the full builtin set plus the executor resolver and JS runtime.
+	reg := action.DefaultRegistry()
+	var (
+		resolver engine.Resolver
+		scripts  engine.ScriptRuntime
+	)
+	if policy.Restricted {
+		reg = newRestrictedRegistry()
+		if vErr := validateRestricted(wf, reg); vErr != nil {
+			msg := fmt.Sprintf("restricted mode (ACTIONS_RESTRICTED): %v", vErr)
+			fmt.Printf("  %s\n", msg)
+			reportWorkflowResult(ctx, grpcClient, execID, 1, msg+"\n", 0)
+			return nil
+		}
+	} else {
+		resolver = newExecutorResolver(grpcClient)
+		scripts = jsruntime.New()
 	}
 
 	// Open the live output stream. If it cannot be opened we still run the
@@ -92,8 +116,9 @@ func handleActionCommand(
 
 	runner := engine.New(engine.Options{
 		System:        system.NewReal(),
-		Resolver:      newExecutorResolver(grpcClient),
-		ScriptRuntime: jsruntime.New(),
+		Registry:      reg,
+		Resolver:      resolver,
+		ScriptRuntime: scripts,
 		Output:        sink,
 	})
 

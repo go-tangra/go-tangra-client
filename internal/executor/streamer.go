@@ -22,7 +22,7 @@ func RunStreamer(
 	currentVersion string,
 	timeout time.Duration,
 	reconnectInterval time.Duration,
-	actionsEnabled bool,
+	policy ActionsPolicy,
 ) error {
 	bo := backoff.New()
 
@@ -33,7 +33,7 @@ func RunStreamer(
 		default:
 		}
 
-		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, currentVersion, timeout, actionsEnabled)
+		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, currentVersion, timeout, policy)
 		if err != nil {
 			if errors.Is(err, ErrRestartRequested) {
 				return err
@@ -58,12 +58,12 @@ func runStreamLoop(
 	clientID string,
 	currentVersion string,
 	timeout time.Duration,
-	actionsEnabled bool,
+	policy ActionsPolicy,
 ) error {
 	stream, err := grpcClient.StreamCommands(ctx, &executorV1.StreamCommandsRequest{
 		ClientId:       clientID,
 		ClientVersion:  currentVersion,
-		ActionsEnabled: actionsEnabled,
+		ActionsEnabled: policy.Enabled,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)
@@ -80,7 +80,7 @@ func runStreamLoop(
 			return err
 		}
 
-		if err := handleExecutionCommand(ctx, grpcClient, hashStore, command, currentVersion, timeout, actionsEnabled); err != nil {
+		if err := handleExecutionCommand(ctx, grpcClient, hashStore, command, currentVersion, timeout, policy); err != nil {
 			return err
 		}
 	}
@@ -93,14 +93,14 @@ func handleExecutionCommand(
 	command *executorV1.ExecutionCommand,
 	currentVersion string,
 	timeout time.Duration,
-	actionsEnabled bool,
+	policy ActionsPolicy,
 ) error {
 	// Dispatch by command type
 	if command.GetCommandType() == executorV1.CommandType_COMMAND_TYPE_CLIENT_UPDATE {
 		return handleUpdateCommand(ctx, grpcClient, command, currentVersion)
 	}
 	if command.GetCommandType() == executorV1.CommandType_COMMAND_TYPE_ACTION_EXECUTION {
-		return handleActionCommand(ctx, grpcClient, command, timeout, actionsEnabled)
+		return handleActionCommand(ctx, grpcClient, command, timeout, policy)
 	}
 
 	// Default: script execution
