@@ -3,6 +3,9 @@ Description=Tangra Client Daemon - IPAM & LCM Agent
 Documentation=https://github.com/go-tangra/go-tangra-client
 After=network-online.target
 Wants=network-online.target
+# Start rate-limiting belongs in [Unit].
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,8 +13,6 @@ ExecStart=/usr/local/bin/tangra-client daemon \
     --config-file /etc/tangra-client/config.yaml
 Restart=always
 RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # The agent is a root host-administration daemon: it runs scripts and
 # go-tangra-actions workflows that manage the system (package upgrades, file and
