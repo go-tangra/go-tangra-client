@@ -30,7 +30,6 @@ import (
 
 	executorint "github.com/go-tangra/go-tangra-client/internal/executor"
 	ipamint "github.com/go-tangra/go-tangra-client/internal/ipam"
-	"github.com/go-tangra/go-tangra-client/internal/updater"
 )
 
 var (
@@ -334,7 +333,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 	// Executor goroutine
 	if !disableExecutor {
 		g.Go(func() error {
-			return runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
+			err := runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
 				executorConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
 				if err != nil {
 					return fmt.Errorf("failed to connect: %w", err)
@@ -351,6 +350,14 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval)
 			})
+			// A self-update applied the new binary: restart NOW rather than
+			// returning up to g.Wait(), which would block until the LCM/IPAM
+			// goroutines also drain (up to a full sync interval). handleRestart
+			// re-execs / exits and does not return.
+			if errors.Is(err, executorint.ErrRestartRequested) {
+				return handleRestart()
+			}
+			return err
 		})
 	}
 
@@ -458,20 +465,20 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// handleRestart restarts the daemon after a successful binary update.
-// Under systemd, a clean exit (code 0) triggers automatic restart with the new binary.
-// Otherwise, it re-execs the current binary in-place.
+// handleRestart restarts the daemon after a successful binary update. It
+// re-execs the current binary in place, which is immediate and independent of
+// any service-manager Restart= policy. If re-exec fails it exits cleanly so a
+// supervisor (systemd Restart=always) brings the daemon back on the new binary.
 func handleRestart() error {
-	fmt.Println("Update applied, restarting...")
-
-	env := updater.DetectEnvironment()
-	if env.IsSystemd {
-		os.Exit(0)
-	}
-
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("failed to find executable path: %w", err)
+		fmt.Printf("Update applied but executable path unknown (%v); exiting for the service manager to restart\n", err)
+		os.Exit(0)
 	}
-	return syscall.Exec(exe, os.Args, os.Environ())
+	fmt.Println("Update applied, re-executing the new binary...")
+	if execErr := syscall.Exec(exe, os.Args, os.Environ()); execErr != nil {
+		fmt.Printf("re-exec failed (%v); exiting for the service manager to restart\n", execErr)
+		os.Exit(0)
+	}
+	return nil
 }

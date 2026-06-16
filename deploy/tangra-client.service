@@ -13,25 +13,12 @@ RestartSec=10
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
-# Security hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
-RestrictSUIDSGID=true
-
-# Allow read access to DMI tables (board/memory info) and system info
-ReadOnlyPaths=/sys/class/dmi /sys/firmware/dmi /proc
-# Allow read/write to config and state directory
-ReadWritePaths=/etc/tangra-client
-# Allow read/write to certificate live directory
-ReadWritePaths=/etc/tangra-client/live
-# Allow self-update of the binary (selfupdate writes a temp file in the same directory)
-ReadWritePaths=/usr/local/bin
-# Allow package manager operations (cache, locks, logs vary across distros)
-ReadWritePaths=/var
+# The agent is a root host-administration daemon: it runs scripts and
+# go-tangra-actions workflows that manage the system (package upgrades, file and
+# service changes, etc.) and self-updates its own binary. Filesystem sandboxing
+# (ProtectSystem/ProtectHome/ReadWritePaths/NoNewPrivileges/…) is intentionally
+# NOT enabled — it makes the host unmanageable: e.g. `apt upgrade` fails with
+# "Read-only file system" on /var/lib/dpkg, /var/cache, /usr, /boot, …
 
 # Logging
 StandardOutput=journal

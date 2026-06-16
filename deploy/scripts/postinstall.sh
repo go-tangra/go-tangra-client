@@ -2,6 +2,8 @@
 set -e
 
 systemctl daemon-reload
+# Apply unit changes on upgrade (no-op on first install or when inactive).
+systemctl try-restart tangra-client.service 2>/dev/null || true
 
 echo ""
 echo "tangra-client installed successfully!"
