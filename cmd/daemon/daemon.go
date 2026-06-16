@@ -332,6 +332,13 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 	// Executor goroutine
 	if !disableExecutor {
+		// Action execution is opt-in per host: disabled unless ACTIONS_ENABLED is
+		// truthy. Reported to the executor so it only pushes workflows to eligible
+		// hosts.
+		actionsEnabled := actionsEnabledFromEnv()
+		if actionsEnabled {
+			fmt.Println("Executor: action execution ENABLED on this host (ACTIONS_ENABLED)")
+		}
 		g.Go(func() error {
 			err := runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
 				executorConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
@@ -348,7 +355,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 					return fmt.Errorf("failed to load hash store: %w", err)
 				}
 
-				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval)
+				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval, actionsEnabled)
 			})
 			// A self-update applied the new binary: restart NOW rather than
 			// returning up to g.Wait(), which would block until the LCM/IPAM
@@ -463,6 +470,18 @@ func runWithReconnect(ctx context.Context, name, serverAddr, certFile, keyFile, 
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// actionsEnabledFromEnv reports whether this host may run go-tangra-actions
+// workflows. Disabled by default; only an explicit truthy ACTIONS_ENABLED opts
+// the host in.
+func actionsEnabledFromEnv() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ACTIONS_ENABLED"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // handleRestart restarts the daemon after a successful binary update. It

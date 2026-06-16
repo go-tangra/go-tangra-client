@@ -24,11 +24,21 @@ func handleActionCommand(
 	grpcClient executorV1.ExecutorClientServiceClient,
 	command *executorV1.ExecutionCommand,
 	timeout time.Duration,
+	actionsEnabled bool,
 ) error {
 	execID := command.GetExecutionId()
 	name := command.GetScriptName()
 	fmt.Printf("\n[%s] Executor: Received workflow %q (execution %s)\n",
 		time.Now().Format("15:04:05"), name, execID)
+
+	// Defense-in-depth: even though the executor gates eligibility, refuse to run
+	// workflows unless this host opted in via ACTIONS_ENABLED.
+	if !actionsEnabled {
+		msg := "action execution is not enabled on this host (set ACTIONS_ENABLED)"
+		fmt.Printf("  %s\n", msg)
+		reportWorkflowResult(ctx, grpcClient, execID, 1, msg+"\n", 0)
+		return nil
+	}
 
 	wf, err := workflow.Parse([]byte(command.GetWorkflow()))
 	if err != nil {
