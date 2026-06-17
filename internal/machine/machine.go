@@ -39,6 +39,12 @@ type HostInfo struct {
 	Memory      MemoryInfo
 	IPMI        IPMIInfo
 	HostedVMs   []HostedVM // Proxmox guests hosted on this machine (bare-metal hosts only)
+	// RebootRequired is true when the host needs a reboot — detected from
+	// /var/run/reboot-required (Debian/Ubuntu) or needrestart's kernel status.
+	RebootRequired bool
+	// UnattendedUpgrades is true when automatic OS updates are enabled —
+	// apt unattended-upgrades or dnf-automatic.
+	UnattendedUpgrades bool
 }
 
 // IPMIInfo contains IPMI/BMC management interface details (bare-metal only).
@@ -83,7 +89,7 @@ type BoardInfo struct {
 // DiskInfo contains information about a block device
 type DiskInfo struct {
 	Name  string `json:"name"`
-	Type  string `json:"type"`  // "SSD" or "HDD"
+	Type  string `json:"type"` // "SSD" or "HDD"
 	Model string `json:"model"`
 	Size  uint64 `json:"size"` // bytes
 }
@@ -242,6 +248,8 @@ func CollectHostInfo() *HostInfo {
 		info.MemoryTotal = getMemoryTotal()
 		info.Disks = getDisks()
 		info.Board = getBoardInfo()
+		info.RebootRequired = detectRebootRequired()
+		info.UnattendedUpgrades = detectUnattendedUpgrades()
 		info.IsVM, info.IsContainer, info.VMType = detectVirtualization(&info.Board)
 		if !info.IsVM && !info.IsContainer {
 			info.Memory = getMemoryInfo()
@@ -693,14 +701,14 @@ func detectVM(board *BoardInfo) (bool, string) {
 
 	// 3. Check DMI sys_vendor (board info already collected)
 	vendorMap := map[string]string{
-		"QEMU":                    "kvm",
-		"VMware, Inc.":            "vmware",
-		"Microsoft Corporation":   "hyperv",
-		"innotek GmbH":            "virtualbox",
-		"Xen":                     "xen",
-		"Amazon EC2":              "aws",
-		"Google":                  "gce",
-		"DigitalOcean":            "digitalocean",
+		"QEMU":                                  "kvm",
+		"VMware, Inc.":                          "vmware",
+		"Microsoft Corporation":                 "hyperv",
+		"innotek GmbH":                          "virtualbox",
+		"Xen":                                   "xen",
+		"Amazon EC2":                            "aws",
+		"Google":                                "gce",
+		"DigitalOcean":                          "digitalocean",
 		"Parallels Software International Inc.": "parallels",
 	}
 	if vmType, ok := vendorMap[board.SysVendor]; ok {

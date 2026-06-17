@@ -49,6 +49,12 @@ func HasChanges(last *storage.HostInfoSnapshot, current *storage.HostInfoSnapsho
 	if last.IPMIIP != current.IPMIIP {
 		return true
 	}
+	if last.RebootRequired != current.RebootRequired {
+		return true
+	}
+	if last.UnattendedUpgrades != current.UnattendedUpgrades {
+		return true
+	}
 
 	// Compare MAC addresses (sorted)
 	if changedList(last.MACAddresses, current.MACAddresses) {
@@ -95,20 +101,22 @@ func SnapshotFromHostInfo(info *machine.HostInfo) *storage.HostInfoSnapshot {
 	}
 
 	return &storage.HostInfoSnapshot{
-		Hostname:     info.Hostname,
-		OS:           info.OS,
-		Distro:       info.Distro,
-		Kernel:       info.Kernel,
-		CPUModel:     info.CPUModel,
-		PrimaryIP:    info.PrimaryIP,
-		CPUCount:     info.CPUCount,
-		DiskCount:    len(info.Disks),
-		MemoryTotal:  info.MemoryTotal,
-		MACAddresses: macs,
-		IsVM:         info.IsVM,
-		IsContainer:  info.IsContainer,
-		IPMIIP:       info.IPMI.IP,
-		HostedVMs:    hostedVMs,
+		Hostname:           info.Hostname,
+		OS:                 info.OS,
+		Distro:             info.Distro,
+		Kernel:             info.Kernel,
+		CPUModel:           info.CPUModel,
+		PrimaryIP:          info.PrimaryIP,
+		CPUCount:           info.CPUCount,
+		DiskCount:          len(info.Disks),
+		MemoryTotal:        info.MemoryTotal,
+		MACAddresses:       macs,
+		IsVM:               info.IsVM,
+		IsContainer:        info.IsContainer,
+		IPMIIP:             info.IPMI.IP,
+		HostedVMs:          hostedVMs,
+		RebootRequired:     info.RebootRequired,
+		UnattendedUpgrades: info.UnattendedUpgrades,
 	}
 }
 

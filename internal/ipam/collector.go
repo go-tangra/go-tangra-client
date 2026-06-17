@@ -22,7 +22,7 @@ type DeviceMetadata struct {
 	Memory      *machine.MemoryInfo     `json:"memory,omitempty"`
 	Disks       []machine.DiskInfo      `json:"disks,omitempty"`
 	Interfaces  []machine.InterfaceInfo `json:"interfaces,omitempty"`
-	IPMI        *machine.IPMIInfo      `json:"ipmi,omitempty"`
+	IPMI        *machine.IPMIInfo       `json:"ipmi,omitempty"`
 	HostedVMs   []machine.HostedVM      `json:"hosted_vms,omitempty"`
 }
 
@@ -93,19 +93,23 @@ func BuildCreateRequest(info *machine.HostInfo, tenantID uint32) *ipampb.CreateD
 	metadataJSON := buildMetadataJSON(info)
 	manufacturer, model, serial := resolveHardwareInfo(info)
 
+	rebootRequired := info.RebootRequired
+	unattended := info.UnattendedUpgrades
 	req := &ipampb.CreateDeviceRequest{
-		TenantId:     &tenantID,
-		Name:         &info.Hostname,
-		DeviceType:   &deviceType,
-		Status:       &status,
-		OsType:       &osType,
-		OsVersion:    strPtr(info.Distro),
-		PrimaryIp:    strPtr(info.PrimaryIP),
-		ManagementIp: strPtr(info.IPMI.IP),
-		Manufacturer: strPtr(manufacturer),
-		Model:        strPtr(model),
-		SerialNumber: strPtr(serial),
-		Metadata:     strPtr(metadataJSON),
+		TenantId:           &tenantID,
+		Name:               &info.Hostname,
+		DeviceType:         &deviceType,
+		Status:             &status,
+		OsType:             &osType,
+		OsVersion:          strPtr(info.Distro),
+		PrimaryIp:          strPtr(info.PrimaryIP),
+		ManagementIp:       strPtr(info.IPMI.IP),
+		Manufacturer:       strPtr(manufacturer),
+		Model:              strPtr(model),
+		SerialNumber:       strPtr(serial),
+		Metadata:           strPtr(metadataJSON),
+		RebootRequired:     &rebootRequired,
+		UnattendedUpgrades: &unattended,
 	}
 
 	return req
@@ -119,20 +123,24 @@ func BuildUpdateRequest(deviceID string, info *machine.HostInfo) *ipampb.UpdateD
 	metadataJSON := buildMetadataJSON(info)
 	manufacturer, model, serial := resolveHardwareInfo(info)
 
+	rebootRequired := info.RebootRequired
+	unattended := info.UnattendedUpgrades
 	return &ipampb.UpdateDeviceRequest{
 		Id: deviceID,
 		Data: &ipampb.Device{
-			Name:         &info.Hostname,
-			DeviceType:   &deviceType,
-			Status:       &status,
-			OsType:       &osType,
-			OsVersion:    strPtr(info.Distro),
-			PrimaryIp:    strPtr(info.PrimaryIP),
-			ManagementIp: strPtr(info.IPMI.IP),
-			Manufacturer: strPtr(manufacturer),
-			Model:        strPtr(model),
-			SerialNumber: strPtr(serial),
-			Metadata:     strPtr(metadataJSON),
+			Name:               &info.Hostname,
+			DeviceType:         &deviceType,
+			Status:             &status,
+			OsType:             &osType,
+			OsVersion:          strPtr(info.Distro),
+			PrimaryIp:          strPtr(info.PrimaryIP),
+			ManagementIp:       strPtr(info.IPMI.IP),
+			Manufacturer:       strPtr(manufacturer),
+			Model:              strPtr(model),
+			SerialNumber:       strPtr(serial),
+			Metadata:           strPtr(metadataJSON),
+			RebootRequired:     &rebootRequired,
+			UnattendedUpgrades: &unattended,
 		},
 	}
 }

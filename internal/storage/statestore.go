@@ -31,6 +31,9 @@ type HostInfoSnapshot struct {
 	IsVM         bool     `json:"is_vm"`
 	IsContainer  bool     `json:"is_container"`
 	IPMIIP       string   `json:"ipmi_ip,omitempty"`
+	// Host update state — re-sync when these flip so IPAM stays current.
+	RebootRequired     bool `json:"reboot_required"`
+	UnattendedUpgrades bool `json:"unattended_upgrades"`
 	// HostedVMs fingerprints the guests this host runs (Proxmox), as sorted
 	// "vmid:mac" entries, so the daemon re-syncs when the guest list changes.
 	HostedVMs []string `json:"hosted_vms,omitempty"`
