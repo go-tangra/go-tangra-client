@@ -23,6 +23,7 @@ func RunStreamer(
 	timeout time.Duration,
 	reconnectInterval time.Duration,
 	policy ActionsPolicy,
+	securityHardened bool,
 ) error {
 	bo := backoff.New()
 
@@ -33,7 +34,7 @@ func RunStreamer(
 		default:
 		}
 
-		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, currentVersion, timeout, policy)
+		err := runStreamLoop(ctx, grpcClient, hashStore, clientID, currentVersion, timeout, policy, securityHardened)
 		if err != nil {
 			if errors.Is(err, ErrRestartRequested) {
 				return err
@@ -59,11 +60,13 @@ func runStreamLoop(
 	currentVersion string,
 	timeout time.Duration,
 	policy ActionsPolicy,
+	securityHardened bool,
 ) error {
 	stream, err := grpcClient.StreamCommands(ctx, &executorV1.StreamCommandsRequest{
-		ClientId:       clientID,
-		ClientVersion:  currentVersion,
-		ActionsEnabled: policy.Enabled,
+		ClientId:         clientID,
+		ClientVersion:    currentVersion,
+		ActionsEnabled:   policy.Enabled,
+		SecurityHardened: securityHardened,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to start stream: %w", err)

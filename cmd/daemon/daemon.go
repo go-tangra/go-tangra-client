@@ -349,6 +349,13 @@ func runDaemon(c *cobra.Command, args []string) error {
 		} else {
 			fmt.Println("Executor: action execution DISABLED on this host (ACTIONS_ENABLED=false)")
 		}
+		// Probe systemd filesystem sandboxing once: if the system is read-only
+		// (ProtectSystem/ProtectHome/…), most actions will fail even when enabled.
+		// Reported to the executor so the Clients page can flag it.
+		securityHardened := executorint.DetectSecurityHardened()
+		if securityHardened {
+			fmt.Println("Executor: WARNING — security hardening detected (read-only system); most actions will FAIL")
+		}
 		g.Go(func() error {
 			err := runWithReconnect(gCtx, "Executor", executorServerAddr, certFile, keyFile, caFile, func(ctx context.Context, addr, cf, kf, ca string) error {
 				executorConn, err := client.CreateMTLSConnection(addr, cf, kf, ca)
@@ -365,7 +372,7 @@ func runDaemon(c *cobra.Command, args []string) error {
 					return fmt.Errorf("failed to load hash store: %w", err)
 				}
 
-				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval, actionsPolicy)
+				return executorint.RunStreamer(ctx, executorClient, hashStore, clientID, cmd.GetBuildInfo().Version, 5*time.Minute, syncInterval, actionsPolicy, securityHardened)
 			})
 			// A self-update applied the new binary: restart NOW rather than
 			// returning up to g.Wait(), which would block until the LCM/IPAM
