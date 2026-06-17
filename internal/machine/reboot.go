@@ -48,20 +48,29 @@ func needrestartKernelReboot() bool {
 	return false
 }
 
-// detectUnattendedUpgrades reports whether automatic OS updates are enabled.
-// On apt systems it consults the authoritative merged apt config
-// (APT::Periodic::Unattended-Upgrade "1"); on dnf systems it checks whether the
-// dnf-automatic timer is enabled.
+// detectUnattendedUpgrades reports whether automatic OS updates will actually
+// run. On apt systems that requires BOTH the periodic config
+// (APT::Periodic::Unattended-Upgrade "1") AND the apt-daily-upgrade.timer being
+// enabled. On dnf systems it is whether the dnf-automatic timer is enabled.
 func detectUnattendedUpgrades() bool {
 	return aptUnattendedEnabled() || timerEnabled("dnf-automatic.timer") ||
 		timerEnabled("dnf-automatic-install.timer")
 }
 
-// aptUnattendedEnabled returns true when apt's merged config sets
-// APT::Periodic::Unattended-Upgrade to "1". apt-config dump merges every file
-// under /etc/apt/apt.conf.d, so it is authoritative; absent apt-config means
-// this is not an apt host.
+// aptUnattendedEnabled reports whether apt unattended upgrades will run. The
+// periodic config must request them AND the systemd timer that triggers them
+// must be enabled — config "1" with the timer disabled/masked does nothing, and
+// the timer with config "0" likewise does nothing. The unattended-upgrades
+// *service* unit is only the shutdown-time helper (not the periodic trigger), so
+// its enabled/disabled state is intentionally NOT used here.
 func aptUnattendedEnabled() bool {
+	return aptPeriodicUnattendedOn() && timerEnabled("apt-daily-upgrade.timer")
+}
+
+// aptPeriodicUnattendedOn reports whether APT::Periodic::Unattended-Upgrade is
+// "1" in apt's merged config. It parses the exact key line so a stray "1" from
+// any other config value can never match.
+func aptPeriodicUnattendedOn() bool {
 	if _, err := exec.LookPath("apt-config"); err != nil {
 		return false
 	}
@@ -71,9 +80,12 @@ func aptUnattendedEnabled() bool {
 	if err != nil {
 		return false
 	}
-	// Output is `APT::Periodic::Unattended-Upgrade "1";` when enabled, "0" or
-	// empty otherwise.
-	return strings.Contains(string(out), `"1"`)
+	for _, line := range strings.Split(string(out), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "APT::Periodic::Unattended-Upgrade"); ok {
+			return strings.Contains(v, `"1"`)
+		}
+	}
+	return false
 }
 
 // timerEnabled reports whether a systemd timer unit is enabled.
