@@ -33,12 +33,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: go-tangra/go-tangra-ipam
+          # main carries the go-tangra v4 rewrite; the client builds against v3.
+          ref: v3
           path: go-tangra-ipam
 
       - name: Checkout go-tangra-lcm
         uses: actions/checkout@v4
         with:
           repository: go-tangra/go-tangra-lcm
+          # main carries the go-tangra v4 rewrite; the client builds against v3.
+          ref: v3
           path: go-tangra-lcm
 
       - name: Checkout go-tangra-executor
