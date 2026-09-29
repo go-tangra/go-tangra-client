@@ -271,6 +271,12 @@ func runDaemon(c *cobra.Command, args []string) error {
 	// Continuous daemon mode with errgroup
 	g, gCtx := errgroup.WithContext(ctx)
 
+	// go-tangra v4 inventory agent: install and auto-enroll it when
+	// configured. Runs at every start, which includes the restart after a
+	// self-update; an enrolled agent makes this a no-op. Best effort, in the
+	// background, never stops the daemon.
+	go func() { _, _ = cmd.EnsureInventoryAgent(gCtx) }()
+
 	// LCM goroutine
 	if !disableLCM {
 		g.Go(func() error {

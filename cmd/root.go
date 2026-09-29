@@ -124,6 +124,17 @@ var ValidConfigKeys = []string{
 	"disable-ipam",
 	"disable-lcm",
 	"disable-executor",
+	// go-tangra v4 inventory agent: installed and auto-enrolled after
+	// client updates and at daemon start when these are set.
+	"inventory-ingest",
+	"inventory-auto-enroll-key-id",
+	"inventory-auto-enroll-key",
+	"inventory-auto-enroll-key-file",
+	"inventory-ca-file",
+	"inventory-server-name",
+	"inventory-agent-version",
+	"inventory-agent-release-keys",
+	"disable-inventory-agent",
 }
 
 // GetConfigFilePath returns the resolved path to the active config file.

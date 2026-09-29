@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "version": "4.5.1",
+  "created_at": "2026-09-29T21:13:57Z",
+  "key_id": "release-2026",
+  "artifacts": [
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "install_type": "deb",
+      "file": "tangra-inventory-agent_4.5.1_amd64.deb",
+      "size": 7051234,
+      "sha256": "97e5f3e54eb42c07ad46abf03b5f32909c0d1b593bb540ed7d608894213d4b73"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "install_type": "deb",
+      "file": "tangra-inventory-agent_4.5.1_arm64.deb",
+      "size": 6416350,
+      "sha256": "01b5e2bdd88b3cca2c9a904b6306c8a83fdd4a6e8e936f7d830ee670dc564cbc"
+    },
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "install_type": "rpm",
+      "file": "tangra-inventory-agent-4.5.1-1.x86_64.rpm",
+      "size": 7041479,
+      "sha256": "f8e877865a6dac22c419cf50bcbd61a5b1d1c5dd3289cd457022e88eaa39ef69"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "install_type": "rpm",
+      "file": "tangra-inventory-agent-4.5.1-1.aarch64.rpm",
+      "size": 6390074,
+      "sha256": "c857727ecb599ee2c12b2dc68f192ff8380d399de97d089731e90641d8da0fcf"
+    },
+    {
+      "os": "linux",
+      "arch": "amd64",
+      "install_type": "binary",
+      "file": "inventory-agent-linux-amd64",
+      "size": 19538082,
+      "sha256": "4059e3e5e345b9b32e6a3d033678e6acf832d0b7a9ba349a66b21ec0141c40be"
+    },
+    {
+      "os": "linux",
+      "arch": "arm64",
+      "install_type": "binary",
+      "file": "inventory-agent-linux-arm64",
+      "size": 18350242,
+      "sha256": "428f8dd8ebdd80eec5845f3415d82286b8f903fb6c93e9241586951cda62e25f"
+    },
+    {
+      "os": "windows",
+      "arch": "amd64",
+      "install_type": "binary",
+      "file": "inventory-agent-windows-amd64.exe",
+      "size": 18317312,
+      "sha256": "dc0ae0825377a1a78ab44dd1c9e106b2a95587b25cd92c3ea13a80c55b4fe55f"
+    },
+    {
+      "os": "windows",
+      "arch": "arm64",
+      "install_type": "binary",
+      "file": "inventory-agent-windows-arm64.exe",
+      "size": 16953856,
+      "sha256": "9974a096a4de1165d94e46526111320aca251c48d6899b0d27b5a1540d07c332"
+    }
+  ]
+}

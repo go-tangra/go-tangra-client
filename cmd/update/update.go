@@ -105,6 +105,11 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// After an update, make sure the v4 inventory agent is installed and
+	// enrolled (only when automatic enrollment is configured).
+	fmt.Println()
+	_, _ = cmd.EnsureInventoryAgent(context.Background())
+
 	if env.IsSystemd {
 		fmt.Println()
 		fmt.Println("Hint: restart the service to use the new version:")
