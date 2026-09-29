@@ -12,6 +12,7 @@ Linux agent that unifies three infrastructure functions: **IPAM device sync**, *
 - **Action / Workflow Execution** — Streams commands from the Executor and runs [go-tangra-actions](https://github.com/go-tangra/go-tangra-actions) workflows on the host, streaming output back live (GitHub-Actions style). Opt-in and policy-gated (see [Action execution](#action-execution))
 - **Self-Update** — Updates its own binary from the Executor's release mirror (with GitHub fallback)
 - **Auto-Registration** — Registers with LCM server using shared secret when no credentials exist
+- **Inventory agent** — Installs the go-tangra v4 inventory agent when missing and enrolls it with an auto-enrollment key (see [Inventory agent](#inventory-agent))
 - **Systemd Integration** — Runs as a long-lived `Restart=always` daemon
 
 ## Commands
@@ -38,6 +39,9 @@ tangra-client status
 # Fetch and execute a script from the executor service
 tangra-client exec <script_id>
 
+# Install the v4 inventory agent if missing and auto-enroll it
+tangra-client inventory-agent
+
 # Update the binary (--check only reports availability)
 tangra-client update
 tangra-client update --check
@@ -59,6 +63,49 @@ key: "/etc/tangra-client/client.key"
 ca: "/etc/tangra-client/ca.crt"
 config-dir: "/etc/tangra-client"
 ```
+
+## Inventory agent
+
+The client can bring the go-tangra v4 **inventory agent** onto its host. The
+settings — ingest host:port, the auto-enrollment key id and secret (created in
+the v4 portal under *Inventory > Agents > Automatic enrollment*), an optional
+CA bundle and agent version — are entered once in the v3 portal under
+*Executor > Clients > Inventory agent*; every client fetches them from the
+executor over its mTLS connection (the executor hands the secret only to
+client certificates). The daemon checks at start (which includes the restart
+after a self-update) and then hourly, `tangra-client update` checks after
+updating, and `tangra-client inventory-agent` does it on demand:
+
+1. An agent that already holds a credential (`/var/lib/inventory-agent/credential`) is left alone.
+2. Otherwise the `tangra-inventory-agent` package (deb via dpkg, rpm via rpm;
+   amd64/arm64) is installed — or upgraded when older than 4.5.1 — from the
+   go-tangra-inventory GitHub release. The release's `agent-release.json` must
+   carry a valid ed25519 signature of the inventory release key (the key the
+   agents trust for self-upgrades; override with `inventory-agent-release-keys`),
+   and the package must match its size and SHA-256. Anything else aborts.
+3. The key secret goes to `/etc/inventory-agent/auto-enroll.key` (0600) and
+   `/etc/inventory-agent/agent.yaml` gets `ingest_endpoint` and `auto_enroll`
+   (comments and other settings kept). An agent already configured for another
+   ingest endpoint is never repointed.
+4. `inventory-agent` is enabled and restarted; the client waits up to a minute
+   for the agent to store its credential and reports `enrolled` or
+   `enrollment_pending` (check `journalctl -u inventory-agent`: the host must
+   connect from one of the key's networks and automatic enrollment must be on).
+
+A host can override the executor's settings in its own configuration:
+
+```yaml
+inventory-ingest: "portal.example.org:9977"
+inventory-auto-enroll-key-id: "ak_..."
+inventory-auto-enroll-key-file: "/etc/tangra-client/inventory-auto-enroll.key"
+```
+
+Nothing happens while the setting is off (and nothing is set locally), in
+containers, or without root; `disable-inventory-agent: true` turns it off on a
+host. A CA bundle from the executor is written to
+`/etc/inventory-agent/ingest-ca.pem`. While an enrollment is pending the agent
+retries by itself; the client restarts it only when it installed it or changed
+its key or configuration.
 
 ## Action execution
 

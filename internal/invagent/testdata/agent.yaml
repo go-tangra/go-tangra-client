@@ -1,0 +1,34 @@
+# go-tangra inventory agent. Set ingest_endpoint and either place an
+# enrollment token (minted in the console: Inventory > Agents) in the
+# token_file, or configure auto_enroll below with a tenant enrollment key
+# (Inventory > Agents > Automatic enrollment), then:
+#   systemctl start inventory-agent
+# The token (or key) is used on first contact; the agent then keeps its
+# credential in credential_file. Options: see deploy/README.md in
+# go-tangra-inventory.
+
+ingest_endpoint: ""                # host:port of the inventory ingest edge, e.g. portal.example.org:9977
+token_file: /etc/inventory-agent/enrollment.token
+credential_file: /var/lib/inventory-agent/credential
+state_file: /var/lib/inventory-agent/state.json
+# Automatic enrollment without a token (used when token_file does not exist):
+# auto_enroll:
+#   key_id: ak_...                                   # public key id shown in the console
+#   key_file: /etc/inventory-agent/auto-enroll.key   # the key secret aks_... (mode 0600)
+interval_seconds: 3600             # 60-604800
+# ca_file: /etc/inventory-agent/ca.pem   # pin the CA that signs the ingest certificate (default: system roots)
+# server_name: ""                        # name to verify in the ingest certificate (default: endpoint host)
+
+collect_bmc: true                  # read-only BMC LAN parameters (needs ipmi_devintf + ipmi_si)
+collect_updates: true              # package update state
+refresh_package_lists: false       # never refresh package lists unless enabled
+update_timeout_seconds: 120        # 30-600
+collect_disks: true                # physical disks: model, serial, size, SSD/HDD/NVMe, interface (sysfs)
+
+# Self-upgrade (needs systemd): upgrades come only from the ingest endpoint
+# above, are verified with the release key built into the agent and roll
+# back automatically when the new version does not report in time.
+upgrade:
+  enabled: true                    # act on upgrade requests from the platform (false: only `inventory-agent update`)
+  confirm_timeout_seconds: 300     # 60-1800
+  # staging_dir: /var/lib/inventory-agent/upgrade

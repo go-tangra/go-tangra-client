@@ -52,3 +52,21 @@ config-dir: "/etc/tangra-client"
 # disable-ipam: false
 # disable-lcm: false
 # disable-executor: false
+
+# --- go-tangra v4 inventory agent (automatic enrollment) ---
+# Normally configured once in the v3 portal (Executor > Clients > Inventory
+# agent) and fetched from the executor; the keys below override it per host.
+# When set, the client installs the inventory agent if it is missing (or
+# older than 4.5.1), verified against the signed go-tangra-inventory release,
+# writes the key for the agent and lets it enroll automatically. Runs at
+# daemon start (so also after every self-update) and after
+# `tangra-client update`; `tangra-client inventory-agent` runs it on demand.
+# The key comes from Inventory > Agents > Automatic enrollment (the host must
+# connect from one of the key's networks).
+# inventory-ingest: "portal.example.org:9977"
+# inventory-auto-enroll-key-id: "ak_..."
+# inventory-auto-enroll-key-file: "/etc/tangra-client/inventory-auto-enroll.key"   # 0600; or inventory-auto-enroll-key: "aks_..."
+# inventory-ca-file: ""              # CA bundle of the ingest certificate on this host (default: system roots)
+# inventory-server-name: ""          # certificate name override
+# inventory-agent-version: "latest"  # or a release such as "4.5.1"
+# disable-inventory-agent: false
