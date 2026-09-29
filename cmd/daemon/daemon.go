@@ -273,9 +273,23 @@ func runDaemon(c *cobra.Command, args []string) error {
 
 	// go-tangra v4 inventory agent: install and auto-enroll it when
 	// configured. Runs at every start, which includes the restart after a
-	// self-update; an enrolled agent makes this a no-op. Best effort, in the
+	// self-update; an enrolled agent makes this a no-op. The settings come from
+	// the local config or, by default, from the executor. Best effort, in the
 	// background, never stops the daemon.
-	go func() { _, _ = cmd.EnsureInventoryAgent(gCtx) }()
+	// Re-checked hourly so switching it on in Executor > Clients > Inventory
+	// agent reaches running clients without a restart.
+	go func() {
+		t := time.NewTicker(time.Hour)
+		defer t.Stop()
+		for {
+			_, _ = cmd.EnsureInventoryAgent(gCtx)
+			select {
+			case <-gCtx.Done():
+				return
+			case <-t.C:
+			}
+		}
+	}()
 
 	// LCM goroutine
 	if !disableLCM {

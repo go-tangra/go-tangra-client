@@ -66,11 +66,15 @@ config-dir: "/etc/tangra-client"
 
 ## Inventory agent
 
-The client can bring the go-tangra v4 **inventory agent** onto its host. With
-automatic enrollment configured (a key from *Inventory > Agents > Automatic
-enrollment* in the portal), the daemon checks at every start — which includes
-the restart after a self-update — and `tangra-client update` checks after
-updating; `tangra-client inventory-agent` does it on demand:
+The client can bring the go-tangra v4 **inventory agent** onto its host. The
+settings — ingest host:port, the auto-enrollment key id and secret (created in
+the v4 portal under *Inventory > Agents > Automatic enrollment*), an optional
+CA bundle and agent version — are entered once in the v3 portal under
+*Executor > Clients > Inventory agent*; every client fetches them from the
+executor over its mTLS connection (the executor hands the secret only to
+client certificates). The daemon checks at start (which includes the restart
+after a self-update) and then hourly, `tangra-client update` checks after
+updating, and `tangra-client inventory-agent` does it on demand:
 
 1. An agent that already holds a credential (`/var/lib/inventory-agent/credential`) is left alone.
 2. Otherwise the `tangra-inventory-agent` package (deb via dpkg, rpm via rpm;
@@ -88,14 +92,20 @@ updating; `tangra-client inventory-agent` does it on demand:
    `enrollment_pending` (check `journalctl -u inventory-agent`: the host must
    connect from one of the key's networks and automatic enrollment must be on).
 
+A host can override the executor's settings in its own configuration:
+
 ```yaml
 inventory-ingest: "portal.example.org:9977"
 inventory-auto-enroll-key-id: "ak_..."
 inventory-auto-enroll-key-file: "/etc/tangra-client/inventory-auto-enroll.key"
 ```
 
-Nothing happens without these settings, in containers, or without root;
-`disable-inventory-agent: true` turns it off.
+Nothing happens while the setting is off (and nothing is set locally), in
+containers, or without root; `disable-inventory-agent: true` turns it off on a
+host. A CA bundle from the executor is written to
+`/etc/inventory-agent/ingest-ca.pem`. While an enrollment is pending the agent
+retries by itself; the client restarts it only when it installed it or changed
+its key or configuration.
 
 ## Action execution
 

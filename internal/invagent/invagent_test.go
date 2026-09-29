@@ -291,7 +291,7 @@ func newEnsureFx(t *testing.T) *fx {
 	f := &fx{sys: &fakeSys{root: true, pkgTool: "dpkg"}, rel: newFakeRelease(t, "4.5.2"), dir: dir}
 	f.in = &Installer{Sys: f.sys, Src: f.rel.source(), Arch: "amd64", Wait: 200 * time.Millisecond, Poll: 10 * time.Millisecond,
 		Paths: Paths{Binary: filepath.Join(dir, "usr/bin/inventory-agent"), Config: filepath.Join(dir, "etc/agent.yaml"), KeyFile: filepath.Join(dir, "etc/auto-enroll.key"),
-			Credential: filepath.Join(dir, "var/credential"), TempDir: dir},
+			Credential: filepath.Join(dir, "var/credential"), CAFile: filepath.Join(dir, "etc/ingest-ca.pem"), TempDir: dir},
 		Logf: func(format string, a ...any) { f.logs = append(f.logs, fmt.Sprintf(format, a...)) }}
 	f.set = Settings{Ingest: "portal.example.org:9977", KeyID: "ak_0123456789abcdef01234567", Key: "aks_secret", ReleaseKeys: f.rel.keys}
 	// The agent stores its credential when it is restarted (it enrolled).
@@ -327,6 +327,25 @@ func TestEnsureInstallsAndEnrolls(t *testing.T) {
 	}
 }
 
+// A CA bundle from the platform is written for the agent and referenced.
+func TestEnsureWritesCABundle(t *testing.T) {
+	f := newEnsureFx(t)
+	f.set.CAPEM = "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+	if out, err := f.in.Ensure(context.Background(), f.set); err != nil || out != OutcomeNewlyEnrolled {
+		t.Fatalf("%v %v", out, err)
+	}
+	if b, _ := os.ReadFile(f.in.Paths.CAFile); !strings.Contains(string(b), "BEGIN CERTIFICATE") {
+		t.Fatalf("ca %q", b)
+	}
+	if cfg, _ := os.ReadFile(f.in.Paths.Config); !strings.Contains(string(cfg), "ca_file: "+f.in.Paths.CAFile) {
+		t.Fatalf("config %s", cfg)
+	}
+	f.set.CAFile = "/x"
+	if _, err := f.in.Ensure(context.Background(), f.set); err == nil {
+		t.Fatal("CA file and bundle together accepted")
+	}
+}
+
 func TestEnsureUpgradesOldAgentAndRPM(t *testing.T) {
 	f := newEnsureFx(t)
 	f.sys.pkgTool, f.sys.installed = "rpm", "4.4.0"
@@ -357,6 +376,11 @@ func TestEnsurePendingAndSkips(t *testing.T) {
 	f.sys.onRestart = nil // the agent does not enroll (e.g. outside the key's networks)
 	if out, err := f.in.Ensure(ctx, f.set); err != nil || out != OutcomePending {
 		t.Fatalf("pending %v %v", out, err)
+	}
+	// Nothing changed since: no restart, no waiting.
+	f.sys.calls = nil
+	if out, err := f.in.Ensure(ctx, f.set); err != nil || out != OutcomePending || f.sys.ran("systemctl") {
+		t.Fatalf("unchanged re-check %v %v %v", out, err, f.sys.calls)
 	}
 
 	cases := map[Outcome]func(f *fx){

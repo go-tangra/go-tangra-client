@@ -20,12 +20,14 @@ var Command = &cobra.Command{
 	SilenceErrors: true, // main prints the error
 	Long: `Make sure the go-tangra v4 inventory agent is installed and enrolled.
 
-When no enrolled agent is found, the agent package (deb/rpm) is downloaded
+The settings come from the executor (Executor > Clients > Inventory agent in
+the portal) unless the local configuration sets them. When no enrolled
+agent is found, the agent package (deb/rpm) is downloaded
 from the go-tangra-inventory GitHub release, verified against the signed
 release manifest, installed, configured with the auto-enrollment key and
 started. The daemon does the same at start-up and after self-updates.
 
-Configuration (/etc/tangra-client/config.yaml):
+Local override (/etc/tangra-client/config.yaml):
   inventory-ingest: "portal.example.org:9977"
   inventory-auto-enroll-key-id: "ak_..."
   inventory-auto-enroll-key-file: "/etc/tangra-client/inventory-auto-enroll.key"   # or inventory-auto-enroll-key
@@ -40,7 +42,7 @@ Configuration (/etc/tangra-client/config.yaml):
 		}
 		switch out {
 		case invagent.OutcomeNotConfigured:
-			return fmt.Errorf("automatic enrollment is not configured (inventory-ingest, inventory-auto-enroll-key-id, inventory-auto-enroll-key[-file]) or disabled")
+			return fmt.Errorf("automatic enrollment is not configured: enable it in Executor > Clients > Inventory agent (or set inventory-* in the client configuration)")
 		case invagent.OutcomeEnrolled:
 			fmt.Println("Inventory agent: already enrolled")
 		default:

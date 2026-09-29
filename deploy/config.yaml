@@ -54,6 +54,8 @@ config-dir: "/etc/tangra-client"
 # disable-executor: false
 
 # --- go-tangra v4 inventory agent (automatic enrollment) ---
+# Normally configured once in the v3 portal (Executor > Clients > Inventory
+# agent) and fetched from the executor; the keys below override it per host.
 # When set, the client installs the inventory agent if it is missing (or
 # older than 4.5.1), verified against the signed go-tangra-inventory release,
 # writes the key for the agent and lets it enroll automatically. Runs at

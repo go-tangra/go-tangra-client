@@ -58,6 +58,7 @@ type Settings struct {
 	Key         string // aks_… (or KeyFile)
 	KeyFile     string // file holding the key secret
 	CAFile      string // optional CA bundle of the ingest certificate (on this host)
+	CAPEM       string // or the CA bundle itself (written to Paths.CAFile)
 	ServerName  string // optional certificate name override
 	Version     string // agent release to install: "" / "latest" or 4.x.y
 	ReleaseKeys string // keyring override; "" = DefaultReleaseKeys
@@ -80,6 +81,9 @@ func (s Settings) Validate() error {
 	}
 	if (s.Key == "") == (s.KeyFile == "") {
 		return errors.New("invagent: set exactly one of inventory-auto-enroll-key and inventory-auto-enroll-key-file")
+	}
+	if s.CAFile != "" && s.CAPEM != "" {
+		return errors.New("invagent: set either an inventory CA file or a CA bundle, not both")
 	}
 	if s.Version != "" && s.Version != "latest" && !versionRE.MatchString(strings.TrimPrefix(s.Version, "v")) {
 		return fmt.Errorf("invagent: inventory-agent-version %q is not a release version", s.Version)
@@ -109,13 +113,15 @@ type Paths struct {
 	Config     string
 	KeyFile    string
 	Credential string
+	CAFile     string // where a CA bundle handed over by the platform is written
 	TempDir    string
 }
 
 // DefaultPaths are the packaged agent's paths.
 func DefaultPaths() Paths {
 	return Paths{Binary: "/usr/bin/inventory-agent", Config: "/etc/inventory-agent/agent.yaml",
-		KeyFile: "/etc/inventory-agent/auto-enroll.key", Credential: "/var/lib/inventory-agent/credential", TempDir: os.TempDir()}
+		KeyFile: "/etc/inventory-agent/auto-enroll.key", Credential: "/var/lib/inventory-agent/credential",
+		CAFile: "/etc/inventory-agent/ingest-ca.pem", TempDir: os.TempDir()}
 }
 
 // Installer carries the dependencies of Ensure.
@@ -160,20 +166,40 @@ func (in *Installer) Ensure(ctx context.Context, s Settings) (Outcome, error) {
 		in.Logf("skipped: %s is not managed by the package manager", in.Paths.Binary)
 		return OutcomeUnmanaged, nil
 	}
+	changed := false
 	if version == "" || compareVersions(version, MinAgentVersion) < 0 {
 		if err := in.install(ctx, s, pkg, version); err != nil {
 			return "", err
 		}
+		changed = true
 	}
-	if err := in.writeKey(s); err != nil {
+	keyChanged, err := in.writeKey(s)
+	if err != nil {
 		return "", err
 	}
-	if _, err := Configure(in.Paths.Config, AgentSettings{Ingest: s.Ingest, KeyID: s.KeyID, KeyFile: in.Paths.KeyFile, CAFile: s.CAFile, ServerName: s.ServerName}); err != nil {
+	changed = changed || keyChanged
+	caFile := s.CAFile
+	if s.CAPEM != "" {
+		want := []byte(strings.TrimSpace(s.CAPEM) + "\n")
+		if cur, err := os.ReadFile(in.Paths.CAFile); err != nil || string(cur) != string(want) {
+			if err := writeAtomic(in.Paths.CAFile, want, 0o644); err != nil {
+				return "", err
+			}
+			changed = true
+		}
+		caFile = in.Paths.CAFile
+	}
+	cfgChanged, err := Configure(in.Paths.Config, AgentSettings{Ingest: s.Ingest, KeyID: s.KeyID, KeyFile: in.Paths.KeyFile, CAFile: caFile, ServerName: s.ServerName})
+	if err != nil {
 		if errors.Is(err, ErrForeignConfig) {
 			in.Logf("skipped: %v", err)
 			return OutcomeForeign, nil
 		}
 		return "", err
+	}
+	if !changed && !cfgChanged {
+		// Nothing new to apply: the agent keeps retrying by itself.
+		return OutcomePending, nil
 	}
 	for _, args := range [][]string{{"enable", "inventory-agent"}, {"restart", "inventory-agent"}} {
 		if out, err := in.Sys.Run(ctx, "systemctl", args...); err != nil {
@@ -279,26 +305,27 @@ func (in *Installer) install(ctx context.Context, s Settings, pkg, current strin
 	return nil
 }
 
-// writeKey stores the key secret for the agent (0600, root only).
-func (in *Installer) writeKey(s Settings) error {
+// writeKey stores the key secret for the agent (0600, root only) and
+// reports whether the file changed.
+func (in *Installer) writeKey(s Settings) (bool, error) {
 	key := s.Key
 	if s.KeyFile != "" {
 		if filepath.Clean(s.KeyFile) == filepath.Clean(in.Paths.KeyFile) {
-			return nil
+			return false, nil
 		}
 		b, err := os.ReadFile(s.KeyFile) // #nosec G304 -- operator-configured key file
 		if err != nil {
-			return fmt.Errorf("invagent: read inventory-auto-enroll-key-file: %w", err)
+			return false, fmt.Errorf("invagent: read inventory-auto-enroll-key-file: %w", err)
 		}
 		key = strings.TrimSpace(string(b))
 	}
 	if key == "" {
-		return errors.New("invagent: the auto-enrollment key is empty")
+		return false, errors.New("invagent: the auto-enrollment key is empty")
 	}
 	if cur, err := os.ReadFile(in.Paths.KeyFile); err == nil && strings.TrimSpace(string(cur)) == key {
-		return nil
+		return false, nil
 	}
-	return writeAtomic(in.Paths.KeyFile, []byte(key+"\n"), 0o600)
+	return true, writeAtomic(in.Paths.KeyFile, []byte(key+"\n"), 0o600)
 }
 
 func nonEmpty(path string) bool {
